@@ -1,5 +1,3 @@
-# basic_bart.R - experimenting with BART
-
 library(dbarts)
 library(BayesTree)
 library(BART)
