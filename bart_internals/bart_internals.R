@@ -91,7 +91,7 @@ data_transformed <- data.frame(y_transformed = y_transformed, x1 = x1, x2 = x2)
 sampler_transformed <- dbarts(y_transformed ~ x1 + x2, data = data_transformed)
 cat("Transformed data sampler created successfully\n")
 
-# basic capability assessment
+# capability assessment
 capabilities <- list(
   sampler_creation = TRUE,
   control_parameter_access = !is.null(sampler$control@n.trees),
