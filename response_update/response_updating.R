@@ -73,6 +73,75 @@ test_basic_response_update <- function() {
   ))
 }
 
+#' Test multiple sequential updates
+test_multiple_updates <- function() {
+  cat("\n=== Test 2: Multiple sequential updates ===\n")
+  
+  set.seed(456)
+  n <- 80
+  X <- matrix(rnorm(n * 2), n, 2)
+  y_base <- X[,1] + 0.5 * X[,2] + rnorm(n, 0, 0.2)
+  
+  # Create sampler
+  sampler <- dbarts(X, y_base,
+                   verbose = FALSE, 
+                   n.samples = 5,
+                   control = dbartsControl(keepTrainingFits = TRUE,
+                                          n.burn = 30,
+                                          n.trees = 15))
+  
+  # Initial burn-in
+  sampler$run(numBurnIn = 30, numSamples = 5)
+  
+  # Track predictions through multiple updates
+  transformations <- c(1.0, 1.5, 0.8, 1.2)  # Scale factors
+  predictions_history <- matrix(NA, length(transformations), n)
+  
+  for (i in seq_along(transformations)) {
+    scale <- transformations[i]
+    y_transformed <- y_base * scale
+    
+    cat("Update", i, ": scaling response by", scale, "\n")
+    
+    # Update response
+    sampler$setResponse(y_transformed, updateState = TRUE)
+    
+    # Run a few samples
+    result <- sampler$run(numBurnIn = 0, numSamples = 5)
+    predictions_history[i, ] <- colMeans(result$train)
+    
+    cat("  Mean prediction:", round(mean(predictions_history[i, ]), 3), "\n")
+  }
+  
+  # Check if predictions scale appropriately
+  base_mean <- mean(predictions_history[1, ])
+  scaling_errors <- numeric(length(transformations) - 1)
+  
+  for (i in 2:length(transformations)) {
+    expected_mean <- base_mean * transformations[i] / transformations[1]
+    actual_mean <- mean(predictions_history[i, ])
+    scaling_errors[i-1] <- abs(actual_mean - expected_mean) / abs(expected_mean)
+    
+    cat("Transformation", i, ": expected mean =", round(expected_mean, 3),
+        ", actual mean =", round(actual_mean, 3),
+        ", relative error =", round(scaling_errors[i-1], 3), "\n")
+  }
+  
+  # Test passes if relative errors are reasonable
+  max_error <- max(scaling_errors)
+  success <- max_error < 0.3  # Allow 30% relative error
+  
+  cat("Maximum relative error:", round(max_error, 3), "\n")
+  cat("Test result:", if(success) "PASS" else "FAIL", "\n")
+  
+  return(list(
+    success = success,
+    max_error = max_error,
+    predictions_history = predictions_history,
+    transformations = transformations
+  ))
+}
+
 #' Run all tests
 run_all_tests <- function() {
   cat("TESTING dbarts RESPONSE DATA UPDATING\n")
