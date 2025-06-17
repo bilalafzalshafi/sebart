@@ -22,4 +22,4 @@ Quick BART approximation is adequate for transformation learning.
 
 ## Analysis
 
-The quick BART approximation achieved an RMSE of 0.0657 compared to the gold standard, well below the 0.5 threshold for acceptance.
+The quick BART approximation achieved an RMSE of 0.0657 compared to the gold standard.
