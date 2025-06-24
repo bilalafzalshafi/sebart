@@ -18,12 +18,6 @@
 #' @param pilot_ndraws number of MCMC draws for pilot BART run to approximate posterior
 #' @param pilot_nburn number of burn-in iterations for pilot BART run  
 #' @param ntree number of trees in BART ensemble
-#' @param k prior parameter for terminal node prior (larger k = more regularization)
-#' @param power parameter for tree prior (affects tree depth)
-#' @param base parameter for tree prior (affects tree depth)
-#' @param sigmaf prior for error variance; if NULL, use default BART prior
-#' @param nu degrees of freedom for error variance prior
-#' @param lambda scale parameter for error variance prior  
 #' @param nsave number of MCMC simulations to save
 #' @param nburn number of MCMC iterations to discard
 #' @param ngrid number of grid points for inverse approximations
@@ -57,10 +51,6 @@
 #' the CDF F_Z needed for transformation sampling. The main MCMC then alternates
 #' between sampling the transformation (given current BART fit) and updating
 #' the BART model (given current transformation).
-#'
-#' BART-specific priors follow the defaults from the literature: the terminal
-#' node prior is N(0, k^2/ntree), the tree structure prior penalizes deep trees
-#' via power and base parameters, and the error variance uses an inverse-gamma prior.
 #'
 #' @note The location (intercept) and scale are not identified under transformation
 #' models, so the BART model includes internal location-scale adjustments but
@@ -103,12 +93,6 @@ sbart = function(y, X, X_test = X,
                  pilot_ndraws = 500,
                  pilot_nburn = 100,
                  ntree = 200,
-                 k = 2.0,
-                 power = 2.0, 
-                 base = 0.95,
-                 sigmaf = NULL,
-                 nu = 3.0,
-                 lambda = NULL,
                  nsave = 1000,
                  nburn = 1000,
                  ngrid = 100,
@@ -136,16 +120,10 @@ sbart = function(y, X, X_test = X,
   n = length(y) # number of observations
   p = ncol(X) # number of variables
   n_test = nrow(X_test) # number of testing data points
-
-  # Default lambda for error variance prior
-  if(is.null(lambda)) lambda = var(y)
   
   # Parameter validation
   if(pilot_ndraws < 50) stop('pilot_ndraws must be at least 50')
   if(ntree < 10) stop('ntree must be at least 10')
-  if(k <= 0) stop('k must be positive')
-  if(nu <= 0) stop('nu must be positive')
-  if(lambda <= 0) stop('lambda must be positive')
   
   #----------------------------------------------------------------------------
   # Initialize the transformation:
@@ -381,7 +359,6 @@ sbart = function(y, X, X_test = X,
     y = y, X = X, X_test = X_test, 
     fixedX = fixedX, approx_g = approx_g,
     pilot_ndraws = pilot_ndraws, pilot_nburn = pilot_nburn,
-    ntree = ntree, k = k, power = power, base = base,
-    nu = nu, lambda = lambda,
+    ntree = ntree,
     n.threads = n.threads, seed = seed))
 }
