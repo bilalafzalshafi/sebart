@@ -135,8 +135,8 @@ sbart = function(y, X, X_test = X,
   y0 = sort(unique(y))
   Fy_eval = Fy(y0)
 
-  # Initial transformation: assume identity for pilot run
-  z = y
+  # Initial transformation: quantile-quantile transformation
+  z = qnorm(Fy(y))
   z_scaled = (z - mean(z))/sd(z) # standardize for BART
 
   #----------------------------------------------------------------------------
