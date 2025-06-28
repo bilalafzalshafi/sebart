@@ -167,36 +167,47 @@ sbart = function(y, X, X_test = X,
 
   # Extract posterior summaries from pilot run
   pilot_fits = pilot_samples$train # n x pilot_ndraws matrix
-  mu_z_pilot = rowMeans(pilot_fits) # posterior mean E[f(xi) | data]
-  var_z_pilot = apply(pilot_fits, 1, var) # posterior variance Var[f(xi) | data]
-  
-  # Add error variance estimate from pilot
   pilot_sigma = mean(pilot_samples$sigma)
-  sigma_z_pilot = sqrt(var_z_pilot + pilot_sigma^2)
+  
+  # Store F_{Z | X = x_i}(t) for all x_i & all t in z_grid
+  # This integrates out the BART function from its posterior:
+  # Instead of just using means/variances, use full posterior samples
+  Fzx_eval = matrix(0, nrow = ngrid, ncol = n)
+  zrep = rep(z_grid, times = pilot_ndraws)
+  Fzx_eval = sapply(1:n, function(i){
+    rowMeans(matrix(pnorm(zrep,
+                          mean = rep(pilot_fits[i,], each = ngrid),
+                          sd = pilot_sigma), nrow = ngrid))
+  })
 
   if(verbose) cat('Pilot run complete. Initializing main sampler...\n')
 
   #----------------------------------------------------------------------------
   # Grid of values for the CDF of z based on pilot estimates:
   z_grid = sort(unique(
-    sapply(range(mu_z_pilot), function(xtemp){
+    sapply(range(pilot_fits), function(xtemp){
       qnorm(seq(0.01, 0.99, length.out = ngrid),
             mean = xtemp,
             sd = pilot_sigma)
     })
   ))
 
-  # CDF of z using pilot estimates:
-  Fz_eval = Fz_fun(z = z_grid,
-                   weights = rep(1/n, n),
-                   mean_vec = mu_z_pilot,
-                   sd_vec = sigma_z_pilot)
+  # CDF of z using pilot estimates (initial approximation):
+  Fz_eval = rowMeans(Fzx_eval)  # average across observations for initial grid
 
   # Check: update the grid if needed
   zcon = contract_grid(z = z_grid,
                        Fz = Fz_eval,
                        lower = 0.001, upper = 0.999)
   z_grid = zcon$z; Fz_eval = zcon$Fz; ngrid = length(z_grid)
+  
+  # Recompute Fzx_eval with updated grid
+  zrep = rep(z_grid, times = pilot_ndraws)
+  Fzx_eval = sapply(1:n, function(i){
+    rowMeans(matrix(pnorm(zrep,
+                          mean = rep(pilot_fits[i,], each = ngrid),
+                          sd = pilot_sigma), nrow = ngrid))
+  })
 
   # Compute initial transformation:
   g = g_fun(y = y0,
@@ -249,8 +260,6 @@ sbart = function(y, X, X_test = X,
   post_sigma = rep(NA, nsave)
 
   # MCMC storage for updating transformation
-  current_mu_z = mu_z_pilot
-  current_sigma_z = sigma_z_pilot
   z_scale_mean = mean(z)
   z_scale_sd = sd(z)
 
@@ -273,17 +282,11 @@ sbart = function(y, X, X_test = X,
         weights_x = rgamma(n = n, shape = 1)
         weights_x = weights_x/sum(weights_x)
 
-        # CDF of Z evaluated on the grid using current BART estimates:
-        Fz_eval = Fz_fun(z = z_grid,
-                         weights = weights_x,
-                         mean_vec = current_mu_z,
-                         sd_vec = current_sigma_z)
+        # CDF of Z evaluated on the grid using pilot posterior:
+        Fz_eval = Fzx_eval%*%weights_x
       } else {
-        # Fixed X case - use uniform weights
-        Fz_eval = Fz_fun(z = z_grid,
-                         weights = rep(1/n, n),
-                         mean_vec = current_mu_z,
-                         sd_vec = current_sigma_z)
+        # Fixed X case - use average across observations
+        Fz_eval = rowMeans(Fzx_eval)
       }
 
       # Compute the transformation:
@@ -312,10 +315,6 @@ sbart = function(y, X, X_test = X,
     # Extract current fit and sigma
     current_fit = as.vector(bart_sample$train) # current f(xi) estimates (scaled)
     current_sigma_scaled = bart_sample$sigma[1] # error SD (scaled)
-    
-    # Transform back to original scale for transformation updates
-    current_mu_z = current_fit * z_scale_sd + z_scale_mean
-    current_sigma_z = rep(current_sigma_scaled * z_scale_sd, n)
 
     #----------------------------------------------------------------------------
     # Store the MCMC:
