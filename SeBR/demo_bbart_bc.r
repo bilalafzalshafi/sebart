@@ -126,7 +126,7 @@ plot(y0, fit_estimated$post_g[1,], type='n', ylim=range(fit_estimated$post_g),
 
 # Plot several transformation draws
 for(s in sample(nrow(fit_estimated$post_g), 30)) {
-  lines(y0, fit_estimated$post_g[s,], col='gray', alpha=0.5)
+  lines(y0, fit_estimated$post_g[s,], col='gray')
 }
 
 # Plot posterior mean transformation
@@ -178,7 +178,7 @@ lambda_results <- list()
 
 for(i in seq_along(lambda_values)) {
   cat("Fitting with lambda =", lambda_values[i], "...\n")
-  fit_lambda <- bbart_bc(y = y, X = X[1:50,], X_test = X_test[1:10,],
+  fit_lambda <- bbart_bc(y = y[1:50], X = X[1:50,], X_test = X_test[1:10,],
                         lambda = lambda_values[i], sample_lambda = FALSE,
                         nsave = 100, nburn = 50, verbose = FALSE)
   lambda_results[[i]] <- fit_lambda

@@ -78,7 +78,7 @@ png("sbart_transformation.png", width=800, height=600)
 plot(y0, fit$post_g[1,], type='n', ylim=range(fit$post_g),
      xlab='y', ylab='g(y)', main="SBART: Posterior Draws of Transformation")
 for(s in sample(nrow(fit$post_g), 50)) {
-  lines(y0, fit$post_g[s,], col='gray', alpha=0.5)
+  lines(y0, fit$post_g[s,], col='gray')
 }
 lines(y0, colMeans(fit$post_g), lwd=3, col='red')
 legend('bottomright', c('Posterior draws', 'Posterior mean'), 

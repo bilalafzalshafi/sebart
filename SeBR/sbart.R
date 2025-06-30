@@ -1,9 +1,10 @@
-#' Semiparametric Bayesian BART
+#' Semiparametric Bayesian BART with Location-Scale Robustness
 #'
 #' MCMC sampling for semiparametric Bayesian regression with
 #' 1) an unknown (nonparametric) transformation and 2) a BART model
 #' for the regression function. The transformation is modeled as unknown
-#' and learned jointly with the BART model using a blocked Gibbs sampler.
+#' and learned jointly with the BART model using a blocked Gibbs sampler
+#' with proper location-scale parameter expansion for robustness.
 #' A pilot BART run is used to approximate the posterior distribution
 #' needed for transformation inference.
 #'
@@ -31,13 +32,15 @@
 #' from the posterior predictive distribution at test points \code{X_test}
 #' \item \code{post_g}: \code{nsave} posterior samples of the transformation
 #' evaluated at the unique \code{y} values
-#' \item \code{post_sigma}: \code{nsave} posterior samples of the error standard deviation
+#' \item \code{post_mu}: \code{nsave} posterior samples of the location parameter
+#' \item \code{post_sigma}: \code{nsave} posterior samples of the scale parameter
 #' \item \code{model}: the model fit (here, \code{sbart})
 #' }
 #' as well as the arguments passed in.
 #'
 #' @details This function provides fully Bayesian inference for a
-#' transformed BART model using blocked Gibbs sampling.
+#' transformed BART model using blocked Gibbs sampling with proper
+#' location-scale parameter expansion (LS-PX) for robustness.
 #' The transformation is modeled as unknown and learned jointly
 #' with the BART model (unless \code{approx_g} = TRUE, which then uses
 #' a point approximation). This model applies for real-valued data, positive data, and
@@ -46,15 +49,13 @@
 #' and \code{TRUE} for larger datasets.
 #'
 #' The approach uses a pilot BART run to approximate the posterior distribution
-#' required for transformation inference. This pilot run provides estimates of
-#' E[f_BART(x)|data] and Var[f_BART(x)|data] which are used to approximate
-#' the CDF F_Z needed for transformation sampling. The main MCMC then alternates
-#' between sampling the transformation (given current BART fit) and updating
-#' the BART model (given current transformation).
+#' required for transformation inference. The main MCMC then alternates
+#' between sampling the transformation (given current BART fit), sampling
+#' location-scale parameters (μ,σ) for robustness, and updating the BART model.
 #'
-#' @note The location (intercept) and scale are not identified under transformation
-#' models, so the BART model includes internal location-scale adjustments but
-#' the function outputs only refer to the identifiable transformed scale.
+#' @note The location-scale parameters (μ,σ) are properly sampled from their
+#' posterior distribution and the reported transformation is adjusted to ensure
+#' identifiability following the LS-PX framework.
 #'
 #' @examples
 #' \donttest{
@@ -71,20 +72,6 @@
 #' # Fit the semiparametric Bayesian BART model:
 #' fit <- sbart(y = y, X = X, X_test = X_test)
 #' names(fit) # what is returned
-#' 
-#' # Evaluate posterior predictive intervals on testing data:
-#' pi_y <- t(apply(fit$post_ypred, 2, quantile, c(0.05, .95))) # 90% PI
-#' plot(1:nrow(pi_y), pi_y[,1], type='n', ylim=range(pi_y),
-#'      xlab='Test observation', ylab='y', main='Prediction intervals')
-#' segments(1:nrow(pi_y), pi_y[,1], 1:nrow(pi_y), pi_y[,2])
-#' points(1:nrow(pi_y), fitted(fit), pch=16)
-#' 
-#' # Summarize the transformation:
-#' y0 <- sort(unique(y)) # posterior draws of g are evaluated at unique y values
-#' plot(y0, fit$post_g[1,], type='n', ylim=range(fit$post_g),
-#'      xlab='y', ylab='g(y)', main="Posterior draws of the transformation")
-#' for(s in sample(nrow(fit$post_g), 50)) lines(y0, fit$post_g[s,], col='gray')
-#' lines(y0, colMeans(fit$post_g), lwd=3) # posterior mean
 #' }
 #' @export
 sbart = function(y, X, X_test = X,
@@ -125,6 +112,9 @@ sbart = function(y, X, X_test = X,
   if(pilot_ndraws < 50) stop('pilot_ndraws must be at least 50')
   if(ntree < 10) stop('ntree must be at least 10')
   
+  # Hyperparameters for Gamma(a_sigma, b_sigma) prior on error precision
+  a_sigma = b_sigma = 0.001
+  
   #----------------------------------------------------------------------------
   # Initialize the transformation:
 
@@ -137,7 +127,6 @@ sbart = function(y, X, X_test = X,
 
   # Initial transformation: quantile-quantile transformation
   z = qnorm(Fy(y))
-  z_scaled = (z - mean(z))/sd(z) # standardize for BART
 
   #----------------------------------------------------------------------------
   # Pilot BART run to approximate posterior
@@ -146,11 +135,11 @@ sbart = function(y, X, X_test = X,
   # Construct data frame with matrix columns
   X_df <- as.data.frame(X)
   colnames(X_df) <- paste0("X", 1:ncol(X))
-  pilot_data <- cbind(data.frame(z_scaled = z_scaled), X_df)
+  pilot_data <- cbind(data.frame(z = z), X_df)
   
   # Set up pilot BART sampler
   pilot_sampler = dbarts::dbarts(
-    formula = z_scaled ~ .,
+    formula = z ~ .,
     data = pilot_data,
     control = dbarts::dbartsControl(
       verbose = FALSE,
@@ -169,17 +158,6 @@ sbart = function(y, X, X_test = X,
   pilot_fits = pilot_samples$train # n x pilot_ndraws matrix
   pilot_sigma = mean(pilot_samples$sigma)
   
-  # Store F_{Z | X = x_i}(t) for all x_i & all t in z_grid
-  # This integrates out the BART function from its posterior:
-  # Instead of just using means/variances, use full posterior samples
-  Fzx_eval = matrix(0, nrow = ngrid, ncol = n)
-  zrep = rep(z_grid, times = pilot_ndraws)
-  Fzx_eval = sapply(1:n, function(i){
-    rowMeans(matrix(pnorm(zrep,
-                          mean = rep(pilot_fits[i,], each = ngrid),
-                          sd = pilot_sigma), nrow = ngrid))
-  })
-
   if(verbose) cat('Pilot run complete. Initializing main sampler...\n')
 
   #----------------------------------------------------------------------------
@@ -191,6 +169,15 @@ sbart = function(y, X, X_test = X,
             sd = pilot_sigma)
     })
   ))
+
+  # Store F_{Z | X = x_i}(t) for all x_i & all t in z_grid
+  # This integrates out the BART function from its posterior:
+  zrep = rep(z_grid, times = pilot_ndraws)
+  Fzx_eval = sapply(1:n, function(i){
+    rowMeans(matrix(pnorm(zrep,
+                          mean = rep(pilot_fits[i,], each = ngrid),
+                          sd = pilot_sigma), nrow = ngrid))
+  })
 
   # CDF of z using pilot estimates (initial approximation):
   Fz_eval = rowMeans(Fzx_eval)  # average across observations for initial grid
@@ -209,6 +196,9 @@ sbart = function(y, X, X_test = X,
                           sd = pilot_sigma), nrow = ngrid))
   })
 
+  # Recompute Fz_eval with updated grid
+  Fz_eval = rowMeans(Fzx_eval)
+
   # Compute initial transformation:
   g = g_fun(y = y0,
             Fy_eval = Fy_eval,
@@ -217,7 +207,6 @@ sbart = function(y, X, X_test = X,
 
   # Apply initial transformation
   z = g(y)
-  z_scaled = (z - mean(z))/sd(z)
 
   # Define the grid for approximations using equally-spaced + quantile points:
   y_grid = sort(unique(c(
@@ -228,15 +217,21 @@ sbart = function(y, X, X_test = X,
   g_inv = g_inv_approx(g = g, t_grid = y_grid)
 
   #----------------------------------------------------------------------------
-  # Set up main BART sampler with updated data
-  # Properly construct data frame with matrix columns
+  # Initialize location-scale parameters following LS-PX framework
+  mu = mean(z)  # location parameter
+  sigma_epsilon = sd(z)  # scale parameter
+  
+  # Standardize z for BART (following LS-PX: z_standardized = (z - mu)/sigma)
+  z_standardized = (z - mu)/sigma_epsilon
+  
+  # Set up main BART sampler with standardized data
   X_df <- as.data.frame(X)
   colnames(X_df) <- paste0("X", 1:ncol(X))
-  main_data <- cbind(data.frame(z_scaled = z_scaled), X_df)
+  main_data <- cbind(data.frame(z_std = z_standardized), X_df)
   
-  # Set up main sampler (use defaults for priors)
+  # Set up main sampler
   main_sampler = dbarts::dbarts(
-    formula = z_scaled ~ .,
+    formula = z_std ~ .,
     data = main_data,
     control = dbarts::dbartsControl(
       verbose = FALSE,
@@ -257,11 +252,8 @@ sbart = function(y, X, X_test = X,
   # Store MCMC output:
   post_ypred = array(NA, c(nsave, n_test))
   post_g = array(NA, c(nsave, length(y0)))
+  post_mu = rep(NA, nsave)
   post_sigma = rep(NA, nsave)
-
-  # MCMC storage for updating transformation
-  z_scale_mean = mean(z)
-  z_scale_sd = sd(z)
 
   # Run the main MCMC:
   if(verbose) timer0 = proc.time()[3] # For timing the sampler
@@ -293,28 +285,48 @@ sbart = function(y, X, X_test = X,
       g = g_fun(y = y0, Fy_eval = Fy_eval,
                 z = z_grid, Fz_eval = Fz_eval)
 
-      # Update z and rescale:
+      # Update z:
       z = g(y)
-      z_scale_mean = mean(z)
-      z_scale_sd = sd(z)
-      z_scaled = (z - z_scale_mean)/z_scale_sd
-
-      # Update BART sampler with new response using object method:
-      main_sampler$setResponse(z_scaled)
 
       # Update the inverse transformation function:
       g_inv = g_inv_approx(g = g, t_grid = y_grid)
     }
 
     #----------------------------------------------------------------------------
-    # Block 2: sample BART model parameters and functions
+    # Block 2: sample location-scale parameters (μ,σ) following LS-PX framework
+    
+    # Get current BART fit for residual calculation
+    current_sample = main_sampler$run(numBurnIn = 0, numSamples = 1)
+    current_fit_std = as.vector(current_sample$train) # standardized scale
+    current_fit = mu + sigma_epsilon * current_fit_std # original scale
+    
+    # Residuals on original scale
+    residuals = z - current_fit
+    
+    # Sample sigma_epsilon (scale parameter) using conjugate gamma prior
+    SSR = sum(residuals^2)
+    sigma_epsilon = 1/sqrt(rgamma(n = 1,
+                                  shape = a_sigma + n/2,
+                                  rate = b_sigma + SSR/2))
+    
+    # Sample mu (location parameter) using conjugate normal prior
+    # Prior: mu ~ N(0, large_var), which is essentially flat
+    mu_var = 1000  # diffuse prior variance
+    mu_post_var = 1/(n/sigma_epsilon^2 + 1/mu_var)
+    mu_post_mean = mu_post_var * sum(z - current_fit + mu)/sigma_epsilon^2
+    mu = rnorm(1, mean = mu_post_mean, sd = sqrt(mu_post_var))
+    
+    # Update standardized z for BART
+    z_standardized = (z - mu)/sigma_epsilon
+    
+    # Update BART sampler with new standardized response
+    main_sampler$setResponse(z_standardized)
+
+    #----------------------------------------------------------------------------
+    # Block 3: sample BART model parameters and functions
     
     # Single MCMC step for BART using object method
     bart_sample = main_sampler$run(numBurnIn = 0, numSamples = 1)
-    
-    # Extract current fit and sigma
-    current_fit = as.vector(bart_sample$train) # current f(xi) estimates (scaled)
-    current_sigma_scaled = bart_sample$sigma[1] # error SD (scaled)
 
     #----------------------------------------------------------------------------
     # Store the MCMC:
@@ -324,18 +336,21 @@ sbart = function(y, X, X_test = X,
       # Get BART predictions at test points using object method
       X_test_df <- as.data.frame(X_test)
       colnames(X_test_df) <- paste0("X", 1:ncol(X_test))
-      bart_pred_scaled = main_sampler$predict(X_test_df)
-      bart_pred = as.vector(bart_pred_scaled) * z_scale_sd + z_scale_mean
+      bart_pred_std = main_sampler$predict(X_test_df)
       
-      # Add noise and transform back to y scale
-      ztilde = bart_pred + current_sigma_scaled * z_scale_sd * rnorm(n = n_test)
+      # Transform back to original scale: z_tilde = mu + sigma * f_BART(x) + sigma * epsilon
+      current_sigma_std = bart_sample$sigma[1]
+      bart_pred = mu + sigma_epsilon * as.vector(bart_pred_std)
+      ztilde = bart_pred + sigma_epsilon * current_sigma_std * rnorm(n = n_test)
       post_ypred[nsi - nburn,] = g_inv(ztilde)
 
-      # Posterior samples of the transformation (adjusted for location/scale):
-      post_g[nsi - nburn,] = (g(y0) - z_scale_mean)/z_scale_sd
+      # Posterior samples of location-scale parameters:
+      post_mu[nsi - nburn] = mu
+      post_sigma[nsi - nburn] = sigma_epsilon
 
-      # Posterior samples of sigma (on original scale):
-      post_sigma[nsi - nburn] = current_sigma_scaled * z_scale_sd
+      # Posterior samples of the transformation (adjusted for location-scale following LS-PX):
+      # Report g^(μ,σ) = (g(y0) - μ)/σ for identifiability
+      post_g[nsi - nburn,] = (g(y0) - mu)/sigma_epsilon
     }
 
     if(verbose) computeTimeRemaining(nsi, timer0, nsave + nburn)
@@ -353,6 +368,7 @@ sbart = function(y, X, X_test = X,
     fitted.values = colMeans(post_ypred),
     post_ypred = post_ypred,
     post_g = post_g,
+    post_mu = post_mu,
     post_sigma = post_sigma,
     model = 'sbart', 
     y = y, X = X, X_test = X_test, 
