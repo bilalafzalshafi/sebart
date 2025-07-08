@@ -43,13 +43,23 @@ X_test = matrix(runif(n_test * p), n_test, p)
 # best rmse: bart, best coverage: sbart
 
 # Complex nonlinear function + step transformation
+# f_true = 10 * sin(pi * X[,1] * X[,2]) + 20 * (X[,3] - 0.5)^2 + 10 * X[,4] + 5 * X[,5]
+# f_test = 10 * sin(pi * X_test[,1] * X_test[,2]) + 20 * (X_test[,3] - 0.5)^2 + 10 * X_test[,4] + 5 * X_test[,5]
+# z = f_true + rnorm(n, sd = 0.5)
+# z_test = f_test + rnorm(n_test, sd = 0.5)
+# y = ifelse(z < 10, z^2, ifelse(z < 20, 2*z + 50, exp((z-20)*0.1) + 90))
+# y_test = ifelse(z_test < 10, z_test^2, ifelse(z_test < 20, 2*z_test + 50, exp((z_test-20)*0.1) + 90))
+# best rmse: sbart, best coverage: sbart, fastest: bart
+
+# Sigmoid transformation (bounded, non-Box-Cox)
 f_true = 10 * sin(pi * X[,1] * X[,2]) + 20 * (X[,3] - 0.5)^2 + 10 * X[,4] + 5 * X[,5]
 f_test = 10 * sin(pi * X_test[,1] * X_test[,2]) + 20 * (X_test[,3] - 0.5)^2 + 10 * X_test[,4] + 5 * X_test[,5]
 z = f_true + rnorm(n, sd = 0.5)
 z_test = f_test + rnorm(n_test, sd = 0.5)
-y = ifelse(z < 10, z^2, ifelse(z < 20, 2*z + 50, exp((z-20)*0.1) + 90))
-y_test = ifelse(z_test < 10, z_test^2, ifelse(z_test < 20, 2*z_test + 50, exp((z_test-20)*0.1) + 90))
-# best rmse: sbart, best coverage: sbart, fastest: bart
+y = 20 / (1 + exp(-z/2))  # Sigmoid, range [0, 20]
+y_test = 20 / (1 + exp(-z_test/2))
+# best rmse: sbart, best coverage: bbart_bc, fastest: bart
+
 
 # Storage for results
 results = list()
@@ -162,6 +172,8 @@ plot(y_test, results$bbart_bc$fitted.values, main = "BBART_BC",
      xlab = "True", ylab = "Predicted", pch = 16)
 abline(0, 1, col = "red")
 
+dev.new()
+
 # Plot transformation estimates (for models that estimate transformations)
 par(mfrow = c(1, 3))
 
@@ -202,14 +214,12 @@ if(!is.null(results$bbart_bc$post_lambda)) {
   lambda_mean = mean(results$bbart_bc$post_lambda)
   y_seq = seq(min(y), max(y), length.out = 100)
   
-  if(exists("g_bc")) {
-    g_bc_vals = g_bc(y_seq, lambda = lambda_mean)
-    plot(y_seq, g_bc_vals, main = paste("BBART_BC (λ =", round(lambda_mean, 2), ")"), 
-         xlab = "y", ylab = "g(y)", type = "l", lwd = 2)
+  g_bc_vals = g_bc(y_seq, lambda = lambda_mean)
+  plot(y_seq, g_bc_vals, main = paste("BBART_BC (λ =", round(lambda_mean, 2), ")"), 
+       xlab = "y", ylab = "g(y)", type = "l", lwd = 2)
     
-    if(exists("dat") && "g_true" %in% names(dat) && "y_grid" %in% names(dat)) {
-      points(dat$y_grid, dat$g_true, col = "red", pch = 16, cex = 0.5)
-    }
+  if(exists("dat") && "g_true" %in% names(dat) && "y_grid" %in% names(dat)) {
+    points(dat$y_grid, dat$g_true, col = "red", pch = 16, cex = 0.5)
   }
 }
 
