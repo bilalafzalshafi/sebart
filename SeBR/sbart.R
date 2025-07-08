@@ -229,10 +229,40 @@ sbart = function(y, X, X_test = X,
   colnames(X_df) <- paste0("X", 1:ncol(X))
   main_data <- cbind(data.frame(z_std = z_standardized), X_df)
   
-  # Set up main sampler
+  # # Set up main sampler
+  # main_sampler = dbarts::dbarts(
+  #   formula = z_std ~ .,
+  #   data = main_data,
+  #   control = dbarts::dbartsControl(
+  #     verbose = FALSE,
+  #     keepTrainingFits = TRUE,
+  #     keepTrees = FALSE,
+  #     n.trees = ntree,
+  #     n.chains = 1L,
+  #     n.threads = n.threads,
+  #     rngSeed = seed,
+  #     updateState = FALSE
+  #   )
+  # )
+
+  # Calculate properties of double-scaled data for prior calibration
+  z_std_var = var(z_standardized)
+  z_std_range = diff(range(z_standardized))
+
+  # Estimate what BART's internal rescaling will produce
+  # BART rescales to [-0.5, 0.5], so final range will be 1.0
+  # Final variance will be approximately z_std_var * (1.0/z_std_range)^2
+  final_expected_var = z_std_var * (1.0/z_std_range)^2
+
+  # Adjust k: default k=2 assumes certain scale properties
+  # If our double-scaled data has different variance, adjust proportionally
+  k_adjusted = 2.0 * sqrt(final_expected_var / 0.25)  # 0.25 is var for uniform[-0.5,0.5]
+
+  # Set up main sampler with calibrated priors
   main_sampler = dbarts::dbarts(
     formula = z_std ~ .,
     data = main_data,
+    sigma = sqrt(final_expected_var),
     control = dbarts::dbartsControl(
       verbose = FALSE,
       keepTrainingFits = TRUE,
@@ -241,8 +271,9 @@ sbart = function(y, X, X_test = X,
       n.chains = 1L,
       n.threads = n.threads,
       rngSeed = seed,
-      updateState = FALSE
-    )
+      updateState = FALSE,
+    ),
+    node.prior = normal(k = k_adjusted),
   )
 
   # Initialize MCMC sampler using object method
