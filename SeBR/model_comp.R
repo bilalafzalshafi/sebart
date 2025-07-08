@@ -52,14 +52,40 @@ X_test = matrix(runif(n_test * p), n_test, p)
 # best rmse: sbart, best coverage: sbart, fastest: bart
 
 # Sigmoid transformation (bounded, non-Box-Cox)
+# f_true = 10 * sin(pi * X[,1] * X[,2]) + 20 * (X[,3] - 0.5)^2 + 10 * X[,4] + 5 * X[,5]
+# f_test = 10 * sin(pi * X_test[,1] * X_test[,2]) + 20 * (X_test[,3] - 0.5)^2 + 10 * X_test[,4] + 5 * X_test[,5]
+# z = f_true + rnorm(n, sd = 0.5)
+# z_test = f_test + rnorm(n_test, sd = 0.5)
+# y = 20 / (1 + exp(-z/2))  # Sigmoid, range [0, 20]
+# y_test = 20 / (1 + exp(-z_test/2))
+# best rmse: sbart, best coverage: bbart_bc, fastest: bart
+
+# Arctangent transformation (smooth bounded, non-Box-Cox)
+# f_true = 10 * sin(pi * X[,1] * X[,2]) + 20 * (X[,3] - 0.5)^2 + 10 * X[,4] + 5 * X[,5]
+# f_test = 10 * sin(pi * X_test[,1] * X_test[,2]) + 20 * (X_test[,3] - 0.5)^2 + 10 * X_test[,4] + 5 * X_test[,5]
+# z = f_true + rnorm(n, sd = 0.5)
+# z_test = f_test + rnorm(n_test, sd = 0.5)
+# y = 100 * atan(z/5)  # Bounded transformation [-50π, 50π]
+# y_test = 100 * atan(z_test/5)
+# best rmse: sbart, best coverage: sbart, fastest: bart
+
+# Polynomial transformation (x^2.5, non-Box-Cox)
+# f_true = 5 + 2 * (10 * sin(pi * X[,1] * X[,2]) + 20 * (X[,3] - 0.5)^2 + 10 * X[,4] + 5 * X[,5])
+# f_test = 5 + 2 * (10 * sin(pi * X_test[,1] * X_test[,2]) + 20 * (X_test[,3] - 0.5)^2 + 10 * X_test[,4] + 5 * X_test[,5])
+# z = f_true + rnorm(n, sd = 0.5)
+# z_test = f_test + rnorm(n_test, sd = 0.5)
+# y = z^2.5  # Power transformation outside Box-Cox integer range
+# y_test = z_test^2.5
+# best rmse: bbart_bc, best coverage: bbart_bc. bbart_bc works for fractional powers 
+
+# Nearly linear transformation
 f_true = 10 * sin(pi * X[,1] * X[,2]) + 20 * (X[,3] - 0.5)^2 + 10 * X[,4] + 5 * X[,5]
 f_test = 10 * sin(pi * X_test[,1] * X_test[,2]) + 20 * (X_test[,3] - 0.5)^2 + 10 * X_test[,4] + 5 * X_test[,5]
 z = f_true + rnorm(n, sd = 0.5)
 z_test = f_test + rnorm(n_test, sd = 0.5)
-y = 20 / (1 + exp(-z/2))  # Sigmoid, range [0, 20]
-y_test = 20 / (1 + exp(-z_test/2))
-# best rmse: sbart, best coverage: bbart_bc, fastest: bart
-
+y = z + 0.1 * z^2  # Weak quadratic component
+y_test = z_test + 0.1 * z_test^2
+# best rmse: bbart_bc, best coverage: bbart_bc
 
 # Storage for results
 results = list()
