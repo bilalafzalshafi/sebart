@@ -16,11 +16,15 @@ set.seed(123)
 # X_test = dat$X_test
 # best rmse: sblm, best coverage: sbart
 
+n = 200; n_test = 1000; p = 10
+X = matrix(runif(n * p), n, p)
+X_test = matrix(runif(n_test * p), n_test, p)
+
 # Square root transformation
-# f_true = 10 * sin(pi * X[,1] * X[,2]) + 20 * (X[,3] - 0.5)^2 + 10 * X[,4] + 5 * X[,5]
-# f_test = 10 * sin(pi * X_test[,1] * X_test[,2]) + 20 * (X_test[,3] - 0.5)^2 + 10 * X_test[,4] + 5 * X_test[,5]
-# y = (f_true + rnorm(n, sd = 0.5))^2  # Square transformation
-# y_test = (f_test + rnorm(n_test, sd = 0.5))^2
+f_true = 10 * sin(pi * X[,1] * X[,2]) + 20 * (X[,3] - 0.5)^2 + 10 * X[,4] + 5 * X[,5]
+f_test = 10 * sin(pi * X_test[,1] * X_test[,2]) + 20 * (X_test[,3] - 0.5)^2 + 10 * X_test[,4] + 5 * X_test[,5]
+y = (f_true + rnorm(n, sd = 0.5))^2  # Square transformation
+y_test = (f_test + rnorm(n_test, sd = 0.5))^2
 # best rmse: bbart_bc, best coverage: bbart_bc
 
 # Log transformation
@@ -31,10 +35,10 @@ set.seed(123)
 # best rmse: bbart_bc, best coverage: bbart_bc
 
 # No transformation, just regression comparison
-f_true = 10 * sin(pi * X[,1] * X[,2]) + 20 * (X[,3] - 0.5)^2 + 10 * X[,4] + 5 * X[,5]
-f_test = 10 * sin(pi * X_test[,1] * X_test[,2]) + 20 * (X_test[,3] - 0.5)^2 + 10 * X_test[,4] + 5 * X_test[,5]
-y = f_true + rnorm(n, sd = 1)  # Identity transformation
-y_test = f_test + rnorm(n_test, sd = 1)
+# f_true = 10 * sin(pi * X[,1] * X[,2]) + 20 * (X[,3] - 0.5)^2 + 10 * X[,4] + 5 * X[,5]
+# f_test = 10 * sin(pi * X_test[,1] * X_test[,2]) + 20 * (X_test[,3] - 0.5)^2 + 10 * X_test[,4] + 5 * X_test[,5]
+# y = f_true + rnorm(n, sd = 1)  # Identity transformation
+# y_test = f_test + rnorm(n_test, sd = 1)
 # best rmse: bart, best coverage: sbart
 
 # Storage for results
