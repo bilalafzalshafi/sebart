@@ -274,6 +274,7 @@ sbart = function(y, X, X_test = X,
       updateState = FALSE,
     ),
     node.prior = normal(k = k_adjusted),
+    resid.prior = chisq(df = 3, quant = 0.90)
   )
 
   # Initialize MCMC sampler using object method
