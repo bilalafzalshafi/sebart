@@ -43,12 +43,12 @@ X_test = matrix(runif(n_test * p), n_test, p)
 # best rmse: bart, best coverage: sbart
 
 # Complex nonlinear function + step transformation
-# f_true = 10 * sin(pi * X[,1] * X[,2]) + 20 * (X[,3] - 0.5)^2 + 10 * X[,4] + 5 * X[,5]
-# f_test = 10 * sin(pi * X_test[,1] * X_test[,2]) + 20 * (X_test[,3] - 0.5)^2 + 10 * X_test[,4] + 5 * X_test[,5]
-# z = f_true + rnorm(n, sd = 0.5)
-# z_test = f_test + rnorm(n_test, sd = 0.5)
-# y = ifelse(z < 10, z^2, ifelse(z < 20, 2*z + 50, exp((z-20)*0.1) + 90))
-# y_test = ifelse(z_test < 10, z_test^2, ifelse(z_test < 20, 2*z_test + 50, exp((z_test-20)*0.1) + 90))
+f_true = 10 * sin(pi * X[,1] * X[,2]) + 20 * (X[,3] - 0.5)^2 + 10 * X[,4] + 5 * X[,5]
+f_test = 10 * sin(pi * X_test[,1] * X_test[,2]) + 20 * (X_test[,3] - 0.5)^2 + 10 * X_test[,4] + 5 * X_test[,5]
+z = f_true + rnorm(n, sd = 0.5)
+z_test = f_test + rnorm(n_test, sd = 0.5)
+y = ifelse(z < 10, z^2, ifelse(z < 20, 2*z + 50, exp((z-20)*0.1) + 90))
+y_test = ifelse(z_test < 10, z_test^2, ifelse(z_test < 20, 2*z_test + 50, exp((z_test-20)*0.1) + 90))
 # best rmse: sbart, best coverage: sbart, fastest: bart
 
 # Sigmoid transformation (bounded, non-Box-Cox)
@@ -79,12 +79,12 @@ X_test = matrix(runif(n_test * p), n_test, p)
 # best rmse: bbart_bc, best coverage: bbart_bc. bbart_bc works for fractional powers 
 
 # Nearly linear transformation
-f_true = 10 * sin(pi * X[,1] * X[,2]) + 20 * (X[,3] - 0.5)^2 + 10 * X[,4] + 5 * X[,5]
-f_test = 10 * sin(pi * X_test[,1] * X_test[,2]) + 20 * (X_test[,3] - 0.5)^2 + 10 * X_test[,4] + 5 * X_test[,5]
-z = f_true + rnorm(n, sd = 0.5)
-z_test = f_test + rnorm(n_test, sd = 0.5)
-y = z + 0.1 * z^2  # Weak quadratic component
-y_test = z_test + 0.1 * z_test^2
+# f_true = 10 * sin(pi * X[,1] * X[,2]) + 20 * (X[,3] - 0.5)^2 + 10 * X[,4] + 5 * X[,5]
+# f_test = 10 * sin(pi * X_test[,1] * X_test[,2]) + 20 * (X_test[,3] - 0.5)^2 + 10 * X_test[,4] + 5 * X_test[,5]
+# z = f_true + rnorm(n, sd = 0.5)
+# z_test = f_test + rnorm(n_test, sd = 0.5)
+# y = z + 0.1 * z^2  # Weak quadratic component
+# y_test = z_test + 0.1 * z_test^2
 # best rmse: bbart_bc, best coverage: bbart_bc
 
 # Storage for results
