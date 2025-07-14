@@ -163,7 +163,7 @@ plot_sbart_ppd <- function(sbart_fit, y_test, main_title = "Posterior predictive
 #' @param standardize If TRUE, standardize both posterior and true transformations for comparison
 #' @return Creates a plot showing posterior draws of g
 plot_sbart_transformation <- function(sbart_fit, y_values = NULL, true_g_values = NULL, 
-                                    main_title = "Posterior draws of the transformation", 
+                                    main_title = "Posterior draws of transformation (standardized)", 
                                     n_draws = 50, standardize = TRUE) {
   
   # Extract posterior samples of transformation
@@ -212,10 +212,6 @@ plot_sbart_transformation <- function(sbart_fit, y_values = NULL, true_g_values 
     true_g_plot <- true_g_std
     post_g_plot <- post_g_std
     
-    if (main_title == "Posterior draws of the transformation") {
-      main_title <- "Posterior draws of the transformation (standardized)"
-    }
-    
   } else {
     g_mean_plot <- g_mean
     true_g_plot <- true_g_values
@@ -253,7 +249,7 @@ plot_sbart_transformation <- function(sbart_fit, y_values = NULL, true_g_values 
   # Add posterior mean (thick black line)
   lines(y_values, g_mean_plot, col = 'black', lwd = 3)
   
-  # Add true transformation if provided (red triangles for better visibility)
+  # Add true transformation
   if (!is.null(true_g_plot)) {
     points(y_values, true_g_plot, pch = 2, cex = 0.8, col = 'black')
     

@@ -191,41 +191,108 @@ create_performance_plots <- function(all_results) {
   combined_metrics <- combined_metrics[!is.na(combined_metrics$RMSE), ]
   
   # Coverage plot
-  p_coverage <- ggplot(combined_metrics, aes(x = Model, y = Coverage, fill = Model)) +
-    geom_boxplot() +
-    geom_hline(yintercept = 0.9, linetype = "dashed", color = "red") +
-    facet_wrap(~Scenario, scales = "free") +
-    labs(title = "90% Prediction Interval Coverage", 
-         y = "Empirical Coverage") +
+  p_coverage <- ggplot(combined_metrics, aes(y = Model, 
+                                            x = Coverage)) +
+    geom_boxplot(fill = "lightgray", color = "black", width = 0.4, 
+                outlier.shape = 16, outlier.size = 1.5) +
+    geom_vline(xintercept = 0.9, linetype = "dashed", color = "red", size = 0.8) +
+    stat_summary(fun = median, geom = "text", 
+                aes(label = paste0(round(after_stat(x) * 100), "%")),
+                hjust = -0.2, color = "blue", size = 4, fontface = "bold") +
+    facet_wrap(~Scenario, scales = "free_x", ncol = 3) +
+    scale_x_continuous(expand = c(0.1, 0)) +
+    labs(title = "90% prediction interval coverage", 
+        x = "Empirical coverage", y = NULL) +
     theme_minimal() +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+    theme(
+      plot.background = element_rect(fill = "white", color = NA),
+      panel.background = element_rect(fill = "white", color = NA),
+      legend.position = "none",
+      panel.grid.major.x = element_line(color = "gray90", size = 0.3),
+      panel.grid.major.y = element_blank(),
+      panel.grid.minor = element_blank(),
+      strip.background = element_rect(fill = "gray95", color = "black", size = 0.3),
+      strip.text = element_text(face = "bold", size = 10),
+      axis.text.y = element_text(size = 10),
+      axis.text.x = element_text(size = 9),
+      plot.title = element_text(hjust = 0.5, face = "bold", size = 14),
+      panel.spacing.x = unit(0.5, "cm")
+    )
   
   # Interval width plot
-  p_width <- ggplot(combined_metrics, aes(x = Model, y = Mean_Width, fill = Model)) +
-    geom_boxplot() +
-    facet_wrap(~Scenario, scales = "free") +
-    labs(title = "90% Prediction Interval Width", 
-         y = "Mean Interval Width") +
+  p_width <- ggplot(combined_metrics, aes(y = Model, 
+                                        x = Mean_Width)) +
+    geom_boxplot(fill = "lightgray", color = "black", width = 0.4, 
+                outlier.shape = 16, outlier.size = 1.5) +
+    facet_wrap(~Scenario, scales = "free_x", ncol = 3) +
+    scale_x_continuous(expand = c(0.1, 0)) +
+    labs(title = "90% prediction interval width", 
+        x = "Mean interval width", y = NULL) +
     theme_minimal() +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+    theme(
+      plot.background = element_rect(fill = "white", color = NA),
+      panel.background = element_rect(fill = "white", color = NA),
+      legend.position = "none",
+      panel.grid.major.x = element_line(color = "gray90", size = 0.3),
+      panel.grid.major.y = element_blank(),
+      panel.grid.minor = element_blank(),
+      strip.background = element_rect(fill = "gray95", color = "black", size = 0.3),
+      strip.text = element_text(face = "bold", size = 10),
+      axis.text.y = element_text(size = 10),
+      axis.text.x = element_text(size = 9),
+      plot.title = element_text(hjust = 0.5, face = "bold", size = 14),
+      panel.spacing.x = unit(0.5, "cm")
+    )
   
   # RMSE plot
-  p_rmse <- ggplot(combined_metrics, aes(x = Model, y = RMSE, fill = Model)) +
-    geom_boxplot() +
-    facet_wrap(~Scenario, scales = "free") +
-    labs(title = "Root Mean Square Error", 
-         y = "RMSE") +
+  p_rmse <- ggplot(combined_metrics, aes(y = Model, 
+                                        x = RMSE)) +
+    geom_boxplot(fill = "lightgray", color = "black", width = 0.4, 
+                outlier.shape = 16, outlier.size = 1.5) +
+    facet_wrap(~Scenario, scales = "free_x", ncol = 3) +
+    scale_x_continuous(expand = c(0.1, 0)) +
+    labs(title = "Root mean square error", 
+        x = "RMSE", y = NULL) +
     theme_minimal() +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+    theme(
+      plot.background = element_rect(fill = "white", color = NA),
+      panel.background = element_rect(fill = "white", color = NA),
+      legend.position = "none",
+      panel.grid.major.x = element_line(color = "gray90", size = 0.3),
+      panel.grid.major.y = element_blank(),
+      panel.grid.minor = element_blank(),
+      strip.background = element_rect(fill = "gray95", color = "black", size = 0.3),
+      strip.text = element_text(face = "bold", size = 10),
+      axis.text.y = element_text(size = 10),
+      axis.text.x = element_text(size = 9),
+      plot.title = element_text(hjust = 0.5, face = "bold", size = 14),
+      panel.spacing.x = unit(0.5, "cm")
+    )
   
   # Timing plot
-  p_time <- ggplot(combined_metrics, aes(x = Model, y = Time_sec, fill = Model)) +
-    geom_boxplot() +
-    facet_wrap(~Scenario, scales = "free") +
-    labs(title = "Computation Time", 
-         y = "Time (seconds)") +
+  p_time <- ggplot(combined_metrics, aes(y = Model, 
+                                        x = Time_sec)) +
+    geom_boxplot(fill = "lightgray", color = "black", width = 0.4, 
+                outlier.shape = 16, outlier.size = 1.5) +
+    facet_wrap(~Scenario, scales = "free_x", ncol = 3) +
+    scale_x_continuous(expand = c(0.1, 0)) +
+    labs(title = "Computation time", 
+        x = "Time (seconds)", y = NULL) +
     theme_minimal() +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+    theme(
+      plot.background = element_rect(fill = "white", color = NA),
+      panel.background = element_rect(fill = "white", color = NA),
+      legend.position = "none",
+      panel.grid.major.x = element_line(color = "gray90", size = 0.3),
+      panel.grid.major.y = element_blank(),
+      panel.grid.minor = element_blank(),
+      strip.background = element_rect(fill = "gray95", color = "black", size = 0.3),
+      strip.text = element_text(face = "bold", size = 10),
+      axis.text.y = element_text(size = 10), 
+      axis.text.x = element_text(size = 9),
+      plot.title = element_text(hjust = 0.5, face = "bold", size = 14),
+      panel.spacing.x = unit(0.5, "cm")
+    )
   
   return(list(coverage = p_coverage, width = p_width, rmse = p_rmse, time = p_time))
 }
@@ -250,7 +317,7 @@ create_prediction_plots <- function(all_results, scenario_name) {
         geom_point(alpha = 0.5) +
         geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +
         labs(title = paste(model_name, "-", scenario_name),
-             x = "True Values", y = "Predicted Values") +
+             x = "True values", y = "Predicted values") +
         theme_minimal()
       
       plots[[model_name]] <- p
@@ -264,11 +331,9 @@ create_prediction_plots <- function(all_results, scenario_name) {
 main_simulation <- function() {
   cat("Starting model comparison study...\n\n")
   
-  # Run simulation for each scenario
   all_results <- list()
   
-  # Start with a smaller set for initial testing
-  scenarios_to_test <- c("identity", "box_cox", "step")
+  scenarios_to_test <- c("box_cox", "step", "sigmoid", "beta")
   
   for (scenario in scenarios_to_test) {
     all_results[[scenario]] <- run_simulation_study(scenario, n_iterations)
