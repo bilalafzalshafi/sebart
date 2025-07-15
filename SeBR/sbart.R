@@ -357,12 +357,6 @@ sbart = function(y, X, X_test = X,
     main_sampler$setResponse(z_standardized)
 
     #----------------------------------------------------------------------------
-    # Block 3: sample BART model parameters and functions
-    
-    # Single MCMC step for BART using object method
-    bart_sample = main_sampler$run(numBurnIn = 0, numSamples = 1)
-
-    #----------------------------------------------------------------------------
     # Store the MCMC:
     if(nsi > nburn){
 
@@ -373,7 +367,7 @@ sbart = function(y, X, X_test = X,
       bart_pred_std = main_sampler$predict(X_test_df)
       
       # Transform back to original scale: z_tilde = mu + sigma * f_BART(x) + sigma * epsilon
-      current_sigma_std = bart_sample$sigma[1]
+      current_sigma_std = current_sample$sigma[1]
       bart_pred = mu + sigma_epsilon * as.vector(bart_pred_std)
       ztilde = bart_pred + sigma_epsilon * current_sigma_std * rnorm(n = n_test)
       post_ypred[nsi - nburn,] = g_inv(ztilde)
