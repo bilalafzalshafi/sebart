@@ -114,6 +114,11 @@ sbart = function(y, X, X_test = X,
   
   # Hyperparameters for Gamma(a_sigma, b_sigma) prior on error precision
   a_sigma = b_sigma = 0.001
+
+  # if(verbose) {
+  #   original_y <- y  # Store original y values
+  #   cat("Original y stored for comparison\n")
+  # }
   
   #----------------------------------------------------------------------------
   # Initialize the transformation:
@@ -245,40 +250,6 @@ sbart = function(y, X, X_test = X,
     )
   )
 
-  # # Calculate properties of double-scaled data for prior calibration
-  # z_std_var = var(z_standardized)
-  # z_std_range = diff(range(z_standardized))
-
-  # # Estimate what BART's internal rescaling will produce
-  # # BART rescales to [-0.5, 0.5], so final range will be 1.0
-  # # Final variance will be approximately z_std_var * (1.0/z_std_range)^2
-  # final_expected_var = z_std_var * (1.0/z_std_range)^2
-
-  # # Adjust k: default k=2 assumes certain scale properties
-  # # If our double-scaled data has different variance, adjust proportionally
-  # k_adjusted = 2.0 * sqrt(final_expected_var / 0.25)  # 0.25 is var for uniform[-0.5,0.5]
-
-  # # Set up main sampler with calibrated priors
-  # main_sampler = dbarts::dbarts(
-  #   formula = z_std ~ .,
-  #   data = main_data,
-  #   sigma = sqrt(final_expected_var),
-  #   control = dbarts::dbartsControl(
-  #     verbose = FALSE,
-  #     keepTrainingFits = TRUE,
-  #     keepTrees = FALSE,
-  #     n.trees = ntree,
-  #     n.chains = 1L,
-  #     n.threads = n.threads,
-  #     rngSeed = seed,
-  #     updateState = FALSE,
-  #   ),
-  #   node.prior = normal(k = k_adjusted),
-  #   resid.prior = chisq(df = 3, quant = 0.90)
-  # )
-
-  # on non-linear function with step transformation, this did not produce meaningful improvement
-
   # Initialize MCMC sampler using object method
   invisible(main_sampler$run(numBurnIn = 1, numSamples = 1))
 
@@ -296,6 +267,13 @@ sbart = function(y, X, X_test = X,
     #----------------------------------------------------------------------------
     # Block 1: sample the transformation
     if(!approx_g){
+
+      # if(verbose && nsi <= 5) {  # Only log first 5 iterations
+      # if(!identical(y, original_y)) {
+      #     stop("Error: y values have been modified. Iteration ", nsi)
+      #   }
+      #   cat("Iteration", nsi, "- y values unchanged\n")
+      # }
 
       # Bayesian bootstrap for the CDFs
       # BB CDF of y:
