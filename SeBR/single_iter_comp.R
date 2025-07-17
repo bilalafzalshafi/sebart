@@ -10,11 +10,9 @@ source("simulation_helpers.R")
 
 set.seed(123)
 
-# Select scenario to test
-scenario_name <- "beta"  # Change this to test different scenarios
+scenario_name <- "sigmoid"  # Change this to test different scenarios
 cat("Testing scenario:", scenario_name, "\n")
 
-# Generate data
 sim_data <- simulate_sbart_data(n_train = 200, n_test = 1000, p = 10, 
                                scenario = scenario_name, seed = 123)
 y <- sim_data$y_train
@@ -113,7 +111,6 @@ calc_mean_width = function(post_pred, alpha = 0.1) {
   mean(upper - lower, na.rm = TRUE)
 }
 
-# Evaluate each model
 for (model_name in names(results)) {
   if (!is.null(results[[model_name]])) {
     
@@ -137,7 +134,6 @@ print(performance)
 
 par(mfrow = c(2, 2))
 
-# Plot 1-4: Prediction accuracy for each model
 model_names <- c("bart", "sbart", "sblm", "bbart_bc")
 plot_titles <- c("BART", "SBART", "SBLM", "BBART_BC")
 
@@ -149,7 +145,6 @@ for (i in 1:4) {
          xlim = range(y_test), ylim = range(y_test))
     abline(0, 1, col = "red")
     
-    # Add RMSE to plot
     model_rmse <- performance$RMSE[performance$Model == model_names[i]]
     if (length(model_rmse) > 0) {
       text(min(y_test) + 0.1 * diff(range(y_test)), 
@@ -164,14 +159,11 @@ for (i in 1:4) {
   }
 }
 
-# Reset plotting layout
 par(mfrow = c(1, 1))
 
-# Plot transformation estimates for semiparametric models
 dev.new()
 par(mfrow = c(1, 3))
 
-# SBART transformation
 if (!is.null(results$sbart$post_g)) {
   y_unique = sort(unique(y))
   g_mean = colMeans(results$sbart$post_g)
@@ -189,7 +181,6 @@ if (!is.null(results$sbart$post_g)) {
   }
 }
 
-# SBLM transformation  
 if(!is.null(results$sblm$post_g)) {
   y_unique = sort(unique(y))
   g_mean = colMeans(results$sblm$post_g)
@@ -207,12 +198,10 @@ if(!is.null(results$sblm$post_g)) {
   }
 }
 
-# BBART_BC transformation
 if (!is.null(results$bbart_bc$post_lambda)) {
   lambda_mean = mean(results$bbart_bc$post_lambda)
   lambda_sd = sd(results$bbart_bc$post_lambda)
   
-  # Plot lambda posterior
   hist(results$bbart_bc$post_lambda, main = paste("BBART_BC λ posterior"), 
        xlab = "λ", col = "lightblue", border = "black")
   abline(v = lambda_mean, col = "red", lwd = 2)
@@ -220,10 +209,8 @@ if (!is.null(results$bbart_bc$post_lambda)) {
        paste("Mean:", round(lambda_mean, 3)), pos = 4, col = "red")
 }
 
-# Reset layout
 par(mfrow = c(1, 1))
 
-# Summary
 cat("\n=== SUMMARY FOR", toupper(scenario_name), "SCENARIO ===\n")
 cat("Description:", sim_data$description, "\n\n")
 

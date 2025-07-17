@@ -1,3 +1,5 @@
+source("helper_funs.R")
+
 #' Generate data for SBART testing scenarios using Friedman's function
 #' 
 #' @param n_train number of training observations
@@ -12,11 +14,9 @@ simulate_sbart_data <- function(n_train = 200, n_test = 1000, p = 10,
   
   if (!is.null(seed)) set.seed(seed)
   
-  # Generate design matrices
   X_train <- matrix(runif(n_train * p), n_train, p)
   X_test <- matrix(runif(n_test * p), n_test, p)
   
-  # Friedman's nonlinear function
   f_true_train <- 10 * sin(pi * X_train[,1] * X_train[,2]) + 
                   20 * (X_train[,3] - 0.5)^2 + 
                   10 * X_train[,4] + 5 * X_train[,5]
@@ -25,33 +25,22 @@ simulate_sbart_data <- function(n_train = 200, n_test = 1000, p = 10,
                  20 * (X_test[,3] - 0.5)^2 + 
                  10 * X_test[,4] + 5 * X_test[,5]
   
-  # Add noise
   if(heterosked) {
-    z_train <- f_true_train * (1 + rnorm(n_train))
-    z_test <- f_true_test * (1 + rnorm(n_test))
+    z_train <- f_true_train * (1 + rnorm(n_train, sd = 0.5))
+    z_test <- f_true_test * (1 + rnorm(n_test, sd = 0.5))
   } else {
     z_train <- f_true_train + rnorm(n_train, sd = 0.5)
     z_test <- f_true_test + rnorm(n_test, sd = 0.5)
   }
   
-  # Standardize for some transformations (matching diagnostics logic)
-  if (scenario %in% c("beta", "sigmoid")) {
-    z_train <- (z_train - mean(z_train)) / sd(z_train)
-    z_test <- (z_test - mean(c(z_train, z_test))) / sd(c(z_train, z_test))
-  }
-  
-  
-  # Apply transformation
+  # Apply g_inv to latent z to get observed y (like simulate_tlm)
   transform_info <- get_transformation(scenario)
-  y_train <- transform_info$transform(z_train)
-  y_test <- transform_info$transform(z_test)
+  y_train <- transform_info$g_inv(z_train)
+  y_test <- transform_info$g_inv(z_test)
   
-  # Compute true transformation values for diagnostics
+  # True transformation g for diagnostics
   y_unique <- sort(unique(y_train))
-  g_true <- NULL
-  if (!is.null(transform_info$inverse)) {
-    g_true <- transform_info$inverse(y_unique)
-  }
+  g_true <- if(is.null(transform_info$g)) NULL else transform_info$g(y_unique)
   
   list(
     X_train = X_train, y_train = y_train,
@@ -59,73 +48,77 @@ simulate_sbart_data <- function(n_train = 200, n_test = 1000, p = 10,
     f_true_train = f_true_train, f_true_test = f_true_test,
     z_train = z_train, z_test = z_test,
     scenario = scenario,
-    g_inverse = transform_info$inverse,
+    g_inverse = transform_info$g_inv,
     g_true = g_true,
     y_unique = y_unique,
     description = transform_info$description
   )
 }
 
-#' Get transformation function and metadata
 get_transformation <- function(scenario) {
   transformations <- list(
-    "box_cox" = list(
-      transform = function(z) {
-        z_shifted <- z - min(z) + 1  # Ensure positive
-        z_shifted^2  # Square transformation
-      },
-      inverse = function(y) sqrt(pmax(y, 0)),
-      description = "Box-Cox lambda=0.5 (square root)"
-    ),
-    
+
     "step" = list(
-      transform = function(z) {
-        q30 <- quantile(z, 0.3)
-        q70 <- quantile(z, 0.7)
-        ifelse(z < q30, z^2, 
-               ifelse(z < q70, 2*z + 5, 
-                      exp((z - q70)*0.1) + 2*q70 + 5))
+      g = function(y) {y},
+      g_inv = function(z) {
+        # Create monotonic step function
+        g_steps = rexp(n = 10)
+        approxfun(seq(-3, 3, length.out=10),
+                  cumsum(g_steps), rule = 2)((z - mean(z)) / sd(z))
       },
-      inverse = NULL,  # Complex piecewise inverse
-      description = "Step function, positive support"
+      description = "Monotonic step transformation"
     ),
-    
+
     "sigmoid" = list(
-      transform = function(z) 20 / (1 + exp(-z/2)),
-      inverse = function(y) -2 * log(20/y - 1),
-      description = "Sigmoid, bounded [0,20]"
+      g = function(y) -2 * log(20/pmax(y, 1e-10) - 1),
+      g_inv = function(z) 20 / (1 + exp(-z/2)),
+      description = "Inverse sigmoid transformation, bounded [0,20]"
     ),
-    
-    "linear" = list(
-      transform = function(z) z + 0.1 * z^2,
-      inverse = function(y) (-1 + sqrt(1 + 0.4*y)) / 0.2,  # Quadratic formula
-      description = "Nearly linear with weak quadratic"
-    ),
-    
-    "identity" = list(
-      transform = function(z) z,
-      inverse = function(y) y,
-      description = "Identity (no transformation)"
-    ),
-    
+
     "beta" = list(
-      transform = function(z) {
+      g = function(y) qnorm(pbeta(pmax(pmin(y, 1-1e-10), 1e-10), 0.1, 0.5)),
+      g_inv = function(z) {
         z_std <- (z - mean(z)) / sd(z)
         qbeta(pnorm(z_std), shape1 = 0.1, shape2 = 0.5)
       },
-      inverse = function(y) qnorm(pbeta(y, 0.1, 0.5)),
       description = "Beta(0.1,0.5) bounded [0,1], many values near zero"
+    ),
+
+    "arctangent" = list(
+      g = function(y) 5 * tan(y/100),
+      g_inv = function(z) 100 * atan(z/5),
+      description = "Arctangent transformation, smooth bounded"
+    ),
+
+    "box_cox" = list(
+      g = function(y) g_bc(y, lambda = 0.5),
+      g_inv = function(z) g_inv_bc(z, lambda = 0.5),
+      description = "Inverse Box-Cox square root transformation"
+    ),
+
+    "almost_linear" = list(
+      g = function(y) (-1 + sqrt(1 + 0.4*y)) / 0.2,
+      g_inv = function(z) z + 0.1 * z^2,
+      description = "Nearly linear with weak quadratic component"
+    ),
+
+    "polynomial" = list(
+      g = function(y) y^(1/2.5),
+      g_inv = function(z) {
+        z_positive <- z - min(z) + 5
+        z_positive^2.5
+      },
+      description = "Polynomial x^2.5 transformation"
     )
   )
-  
+
   if (!scenario %in% names(transformations)) {
     stop("Unknown scenario. Available: ", paste(names(transformations), collapse = ", "))
   }
-  
+
   transformations[[scenario]]
 }
 
-#' Get available transformation scenarios
 get_available_scenarios <- function() {
-  c("box_cox", "step", "sigmoid", "linear", "identity", "beta")
+  c("step", "sigmoid", "beta", "arctangent", "box_cox", "almost_linear", "polynomial")
 }

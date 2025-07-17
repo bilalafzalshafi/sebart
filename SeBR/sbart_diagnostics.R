@@ -13,7 +13,6 @@ source("helper_funs.R") # bb
 #' @return RMSE value
 plot_sbart_point_estimates <- function(sbart_fit, y_test, main_title = "Point estimates: testing data") {
   
-  # Extract fitted values
   if (is.list(sbart_fit) && "fitted.values" %in% names(sbart_fit)) {
     y_hat <- sbart_fit$fitted.values
   } else if (is.list(sbart_fit) && "post_ypred" %in% names(sbart_fit)) {
@@ -24,13 +23,10 @@ plot_sbart_point_estimates <- function(sbart_fit, y_test, main_title = "Point es
     stop("sbart_fit must contain fitted.values, post_ypred, or be numeric vector")
   }
   
-  # Calculate RMSE
   rmse_val <- sqrt(mean((y_hat - y_test)^2))
   
-  # Determine plot range
   plot_range <- range(c(y_test, y_hat))
   
-  # Create plot
   plot(y_test, y_hat, 
        xlab = 'y_test', ylab = 'y_hat', 
        main = main_title,
@@ -38,16 +34,13 @@ plot_sbart_point_estimates <- function(sbart_fit, y_test, main_title = "Point es
        xlim = plot_range, ylim = plot_range,
        cex.main = 1.2, cex.lab = 1.1)
   
-  # Add diagonal reference line
   abline(0, 1, col = 'red', lwd = 2, lty = 2)
   
-  # Add RMSE text
   text(min(plot_range) + 0.1 * diff(plot_range), 
        max(plot_range) - 0.1 * diff(plot_range),
        paste("RMSE:", round(rmse_val, 3)), 
        cex = 0.9, col = "blue")
   
-  # Add grid
   grid(col = "lightgray", lty = "dotted")
   
   return(rmse_val)
@@ -61,7 +54,6 @@ plot_sbart_point_estimates <- function(sbart_fit, y_test, main_title = "Point es
 #' @return Coverage rate
 plot_pptest <- function(post_ypred, y_test, alpha_level = 0.10) {
   
-  # Calculate prediction intervals
   lower_quantile <- alpha_level / 2
   upper_quantile <- 1 - alpha_level / 2
   
@@ -69,35 +61,27 @@ plot_pptest <- function(post_ypred, y_test, alpha_level = 0.10) {
   y_lower <- apply(post_ypred, 2, quantile, probs = lower_quantile)
   y_upper <- apply(post_ypred, 2, quantile, probs = upper_quantile)
   
-  # Calculate coverage
   coverage <- mean(y_test >= y_lower & y_test <= y_upper)
   
-  # Determine plot range
   all_values <- c(y_test, y_hat, y_lower, y_upper)
   plot_range <- range(all_values, na.rm = TRUE)
   
-  # Create plot
   plot(plot_range, plot_range, type = 'n',
        xlab = 'y_test', ylab = 'y_hat', 
        main = "Prediction intervals: testing data",
        cex.main = 1.2, cex.lab = 1.1)
   
-  # Add diagonal reference line
   abline(0, 1, col = 'gray', lwd = 1)
   
-  # Add prediction intervals (horizontal gray lines)
   for (i in 1:length(y_test)) {
     lines(c(y_test[i], y_test[i]), c(y_lower[i], y_upper[i]), 
           col = 'gray', lwd = 1)
   }
   
-  # Add predicted means (black triangles)
   points(y_test, y_hat, pch = 2, cex = 0.6, col = 'black')
   
-  # Add grid
   grid(col = "lightgray", lty = "dotted")
   
-  # Return coverage (will be printed as in SeBR example)
   return(coverage)
 }
 
@@ -110,26 +94,22 @@ plot_pptest <- function(post_ypred, y_test, alpha_level = 0.10) {
 #' @return Creates a plot showing posterior predictive adequacy
 plot_sbart_ppd <- function(sbart_fit, y_test, main_title = "Posterior predictive ECDF: testing data", n_samples = 100) {
   
-  # Extract posterior predictive samples
   post_ypred <- sbart_fit$post_ypred
   
   if (is.null(post_ypred)) {
     stop("sbart_fit must contain post_ypred component")
   }
   
-  # Sample subset for plotting efficiency if there are many MCMC samples
   n_mcmc_samples <- nrow(post_ypred)
   if (n_mcmc_samples > n_samples) {
     sample_indices <- sample(1:n_mcmc_samples, n_samples)
     post_ypred <- post_ypred[sample_indices, ]
   }
   
-  # Determine plot range
   all_values <- c(y_test, as.vector(post_ypred))
   y_range <- range(all_values, na.rm = TRUE)
   y_grid <- seq(y_range[1], y_range[2], length.out = 200)
   
-  # Set up plot
   plot(y_grid, y_grid, type = 'n', ylim = c(0, 1),
        xlab = 'y', ylab = 'F_y', main = main_title,
        cex.main = 1.2, cex.lab = 1.1)
@@ -149,7 +129,6 @@ plot_sbart_ppd <- function(sbart_fit, y_test, main_title = "Posterior predictive
   ecdf_obs <- ecdf(y_test)
   lines(y_grid, ecdf_obs(y_grid), col = 'black', type = 's', lwd = 3)
   
-  # Add subtle grid
   grid(col = "lightgray", lty = "dotted")
 }
 
@@ -166,14 +145,12 @@ plot_sbart_transformation <- function(sbart_fit, y_values = NULL, true_g_values 
                                     main_title = "Posterior draws of transformation (standardized)", 
                                     n_draws = 50, standardize = TRUE) {
   
-  # Extract posterior samples of transformation
   post_g <- sbart_fit$post_g
   
   if (is.null(post_g)) {
     stop("sbart_fit must contain post_g component")
   }
   
-  # Use unique y values if not provided
   if (is.null(y_values)) {
     y_values <- sort(unique(sbart_fit$y))
   }
@@ -183,7 +160,6 @@ plot_sbart_transformation <- function(sbart_fit, y_values = NULL, true_g_values 
     y_values <- y_values[1:ncol(post_g)]
   }
   
-  # Calculate posterior mean
   g_mean <- colMeans(post_g)
   
   if (standardize && !is.null(true_g_values)) {
@@ -218,7 +194,7 @@ plot_sbart_transformation <- function(sbart_fit, y_values = NULL, true_g_values 
     post_g_plot <- post_g
   }
   
-  # Sample subset of posterior draws for cleaner visualization
+  # Subset
   n_total_draws <- nrow(post_g_plot)
   if (n_total_draws > n_draws) {
     draw_indices <- sample(1:n_total_draws, n_draws)
@@ -227,7 +203,6 @@ plot_sbart_transformation <- function(sbart_fit, y_values = NULL, true_g_values 
     post_g_subset <- post_g_plot
   }
   
-  # Determine plot range
   all_g_values <- c(as.vector(post_g_subset), g_mean_plot)
   if (!is.null(true_g_plot)) {
     all_g_values <- c(all_g_values, true_g_plot)
@@ -241,19 +216,15 @@ plot_sbart_transformation <- function(sbart_fit, y_values = NULL, true_g_values 
        main = main_title,
        cex.main = 1.2, cex.lab = 1.1)
   
-  # Add posterior draws (gray lines)
   for (i in 1:nrow(post_g_subset)) {
     lines(y_values, post_g_subset[i, ], col = 'gray', lwd = 0.5)
   }
   
-  # Add posterior mean (thick black line)
   lines(y_values, g_mean_plot, col = 'black', lwd = 3)
   
-  # Add true transformation
   if (!is.null(true_g_plot)) {
     points(y_values, true_g_plot, pch = 2, cex = 0.8, col = 'black')
     
-    # Add legend
     legend_text <- if (standardize) {
       c('Posterior mean (std)', 'Truth (std)')
     } else {
@@ -265,10 +236,8 @@ plot_sbart_transformation <- function(sbart_fit, y_values = NULL, true_g_values 
            col = c('black', 'black'), cex = 0.8)
   }
   
-  # Add grid
   grid(col = "lightgray", lty = "dotted")
   
-  # Print correlation if both transformations are available and standardized
   if (standardize && !is.null(true_g_plot)) {
     correlation <- cor(g_mean_plot, true_g_plot)
     cat("Correlation between standardized posterior mean and true transformation:", round(correlation, 3), "\n")
@@ -285,7 +254,6 @@ plot_sbart_transformation <- function(sbart_fit, y_values = NULL, true_g_values 
 create_all_sbart_diagnostics <- function(sbart_fit, y_test, true_g_values = NULL, 
                                        alpha_level = 0.10, layout = c(2, 2)) {
   
-  # Set up plotting layout
   par(mfrow = layout, mar = c(4, 4, 3, 2))
   
   # Plot 1: Point estimates
@@ -301,10 +269,8 @@ create_all_sbart_diagnostics <- function(sbart_fit, y_test, true_g_values = NULL
   y_values <- sort(unique(sbart_fit$y))
   plot_sbart_transformation(sbart_fit, y_values, true_g_values)
   
-  # Reset layout
   par(mfrow = c(1, 1))
   
-  # Print summary
   cat("RMSE:", round(rmse, 3), "\n")
   cat("Coverage:", round(coverage, 3), "\n")
   
@@ -321,10 +287,8 @@ demo_all_sbart_diagnostics <- function(scenario = "box_cox", n_train = 200, n_te
   
   cat("Generating data for scenario:", scenario, "\n")
   
-  # Set seed for reproducibility
   set.seed(123)
   
-  # Generate data using helper function
   sim_data <- simulate_sbart_data(n_train = n_train, n_test = n_test, p = p, 
                                 scenario = scenario, seed = 123)
   
@@ -332,7 +296,6 @@ demo_all_sbart_diagnostics <- function(scenario = "box_cox", n_train = 200, n_te
     stop("Unknown scenario. Available: ", paste(get_available_scenarios(), collapse = ", "))
   }
   
-  # Extract components
   X_train <- sim_data$X_train
   X_test <- sim_data$X_test
   y_train <- sim_data$y_train
@@ -349,7 +312,6 @@ demo_all_sbart_diagnostics <- function(scenario = "box_cox", n_train = 200, n_te
   
   cat("Creating all diagnostic plots...\n")
   
-  # Get true transformation values for comparison
   true_g_values <- sim_data$g_true
   y_unique <- sim_data$y_unique
   

@@ -13,14 +13,12 @@ source("bbart_bc.R")
 source("slice.R")
 source("simulation_helpers.R")
 
-# Set up simulation parameters
 set.seed(123)
-n_iterations <- 100  # Number of simulation iterations
+n_iterations <- 100
 n_train <- 200
 n_test <- 1000
 p <- 10
 
-# Function to generate data for a given scenario
 generate_data <- function(scenario_name, n_train, n_test, p) {
   simulate_sbart_data(n_train = n_train, n_test = n_test, p = p, 
                      scenario = scenario_name)
@@ -95,7 +93,6 @@ fit_all_models <- function(data) {
   return(list(results = results, timing = timing))
 }
 
-# Function to calculate performance metrics
 calculate_metrics <- function(results, y_test, alpha = 0.1) {
   metrics <- data.frame(
     Model = character(),
@@ -110,10 +107,8 @@ calculate_metrics <- function(results, y_test, alpha = 0.1) {
     model_result <- results$results[[model_name]]
     if (is.null(model_result)) next
     
-    # RMSE
     rmse <- sqrt(mean((model_result$fitted.values - y_test)^2))
     
-    # Coverage and interval width
     if (!is.null(model_result$post_ypred)) {
       lower <- apply(model_result$post_ypred, 2, quantile, alpha/2)
       upper <- apply(model_result$post_ypred, 2, quantile, 1 - alpha/2)
@@ -124,7 +119,6 @@ calculate_metrics <- function(results, y_test, alpha = 0.1) {
       mean_width <- NA
     }
     
-    # Timing
     time_sec <- results$timing[[model_name]][3]
     
     metrics <- rbind(metrics, data.frame(
@@ -140,7 +134,6 @@ calculate_metrics <- function(results, y_test, alpha = 0.1) {
   return(metrics)
 }
 
-# Main simulation loop
 run_simulation_study <- function(scenario_name, n_iterations) {
   cat("Running simulation study for scenario:", scenario_name, "\n")
   cat("Number of iterations:", n_iterations, "\n\n")
@@ -151,20 +144,16 @@ run_simulation_study <- function(scenario_name, n_iterations) {
   for (i in 1:n_iterations) {
     if (i %% 10 == 0) cat("Iteration", i, "of", n_iterations, "\n")
     
-    # Generate data
     data <- generate_data(scenario_name, n_train, n_test, p)
     
-    # Fit models
     model_fits <- fit_all_models(data)
     
-    # Calculate metrics
     metrics <- calculate_metrics(model_fits, data$y_test)
     metrics$Iteration <- i
     metrics$Scenario <- scenario_name
     
     all_metrics <- rbind(all_metrics, metrics)
     
-    # Store predictions for plotting
     for (model_name in names(model_fits$results)) {
       if (!is.null(model_fits$results[[model_name]])) {
         if (is.null(all_predictions[[model_name]])) {
@@ -182,12 +171,9 @@ run_simulation_study <- function(scenario_name, n_iterations) {
   return(list(metrics = all_metrics, predictions = all_predictions))
 }
 
-# Function to create performance plots
 create_performance_plots <- function(all_results) {
-  # Combine all metrics
   combined_metrics <- do.call(rbind, lapply(all_results, function(x) x$metrics))
   
-  # Remove failed runs
   combined_metrics <- combined_metrics[!is.na(combined_metrics$RMSE), ]
   
   # Coverage plot
@@ -297,7 +283,6 @@ create_performance_plots <- function(all_results) {
   return(list(coverage = p_coverage, width = p_width, rmse = p_rmse, time = p_time))
 }
 
-# Function to create prediction vs truth plots
 create_prediction_plots <- function(all_results, scenario_name) {
   # Use first iteration for visualization
   predictions <- all_results[[scenario_name]]$predictions
@@ -327,13 +312,12 @@ create_prediction_plots <- function(all_results, scenario_name) {
   return(plots)
 }
 
-# Run the full simulation study
 main_simulation <- function() {
   cat("Starting model comparison study...\n\n")
   
   all_results <- list()
   
-  scenarios_to_test <- c("box_cox", "step", "sigmoid", "beta")
+  scenarios_to_test <- c("step","sigmoid", "beta", "arctangent", "box_cox", "almost_linear", "polynomial")
   
   for (scenario in scenarios_to_test) {
     all_results[[scenario]] <- run_simulation_study(scenario, n_iterations)
@@ -341,16 +325,13 @@ main_simulation <- function() {
   
   cat("\nGenerating plots...\n")
   
-  # Create performance plots
   perf_plots <- create_performance_plots(all_results)
   
-  # Save plots
   ggsave("coverage_comparison.png", perf_plots$coverage, width = 12, height = 8)
   ggsave("width_comparison.png", perf_plots$width, width = 12, height = 8)
   ggsave("rmse_comparison.png", perf_plots$rmse, width = 12, height = 8)
   ggsave("time_comparison.png", perf_plots$time, width = 12, height = 8)
   
-  # Create prediction plots for each scenario
   for (scenario in scenarios_to_test) {
     pred_plots <- create_prediction_plots(all_results, scenario)
     
@@ -360,7 +341,6 @@ main_simulation <- function() {
     }
   }
   
-  # Print summary statistics
   cat("\n=== SUMMARY STATISTICS ===\n")
   combined_metrics <- do.call(rbind, lapply(all_results, function(x) x$metrics))
   combined_metrics <- combined_metrics[!is.na(combined_metrics$RMSE), ]
@@ -377,7 +357,6 @@ main_simulation <- function() {
   
   print(summary_stats)
   
-  # Save results
   saveRDS(all_results, "simulation_results.rds")
   write.csv(combined_metrics, "detailed_metrics.csv", row.names = FALSE)
   write.csv(summary_stats, "summary_statistics.csv", row.names = FALSE)
@@ -386,7 +365,6 @@ main_simulation <- function() {
   return(all_results)
 }
 
-# Run the simulation
 if (interactive()) {
   cat("Starting simulation study...\n")
   cat("This may take some time depending on n_iterations =", n_iterations, "\n")
