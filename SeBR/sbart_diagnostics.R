@@ -244,6 +244,112 @@ plot_sbart_transformation <- function(sbart_fit, y_values = NULL, true_g_values 
   }
 }
 
+# #' Plot raw (non-standardized) transformation comparison for SBART
+# #' 
+# #' @param sbart_fit Output from sbart() function
+# #' @param y_values Values at which transformation is evaluated (default: unique y values)
+# #' @param true_g_values True transformation values (optional, for comparison)
+# #' @param main_title Title for the plot
+# #' @param n_draws Number of posterior draws to show (for visual clarity)
+# #' @return Creates a plot showing posterior draws of g without standardization
+# plot_sbart_transformation_raw <- function(sbart_fit, y_values = NULL, true_g_values = NULL, 
+#                                         main_title = "Posterior draws of transformation (raw scale)", 
+#                                         n_draws = 50) {
+  
+#   post_g <- sbart_fit$post_g
+  
+#   if (is.null(post_g)) {
+#     stop("sbart_fit must contain post_g component")
+#   }
+  
+#   if (is.null(y_values)) {
+#     y_values <- sort(unique(sbart_fit$y))
+#   }
+  
+#   if (ncol(post_g) != length(y_values)) {
+#     warning("Dimension mismatch between post_g and y_values. Using first ncol(post_g) y values.")
+#     y_values <- y_values[1:ncol(post_g)]
+#   }
+  
+#   g_mean <- colMeans(post_g)
+  
+#   # NO STANDARDIZATION - use raw values
+#   if (!is.null(true_g_values)) {
+#     # Ensure true_g_values has same length as g_mean
+#     if (length(true_g_values) != length(g_mean)) {
+#       warning("Length mismatch between true_g_values and posterior samples. Truncating to shorter length.")
+#       min_len <- min(length(true_g_values), length(g_mean))
+#       true_g_values <- true_g_values[1:min_len]
+#       g_mean <- g_mean[1:min_len]
+#       post_g <- post_g[, 1:min_len]
+#       y_values <- y_values[1:min_len]
+#     }
+    
+#     # Use raw values - no standardization
+#     g_mean_plot <- g_mean
+#     true_g_plot <- true_g_values
+#     post_g_plot <- post_g
+    
+#   } else {
+#     g_mean_plot <- g_mean
+#     true_g_plot <- NULL
+#     post_g_plot <- post_g
+#   }
+  
+#   # Subset posterior draws
+#   n_total_draws <- nrow(post_g_plot)
+#   if (n_total_draws > n_draws) {
+#     draw_indices <- sample(1:n_total_draws, n_draws)
+#     post_g_subset <- post_g_plot[draw_indices, ]
+#   } else {
+#     post_g_subset <- post_g_plot
+#   }
+  
+#   all_g_values <- c(as.vector(post_g_subset), g_mean_plot)
+#   if (!is.null(true_g_plot)) {
+#     all_g_values <- c(all_g_values, true_g_plot)
+#   }
+  
+#   y_range <- range(y_values)
+#   g_range <- range(all_g_values, na.rm = TRUE)
+  
+#   plot(y_range, g_range, type = 'n',
+#        xlab = 'y', ylab = 'g(y) [raw scale]', 
+#        main = main_title,
+#        cex.main = 1.2, cex.lab = 1.1)
+  
+#   # Plot posterior draws in gray
+#   for (i in 1:nrow(post_g_subset)) {
+#     lines(y_values, post_g_subset[i, ], col = 'gray', lwd = 0.5)
+#   }
+  
+#   # Plot posterior mean in black
+#   lines(y_values, g_mean_plot, col = 'black', lwd = 3)
+  
+#   # Plot true transformation if available
+#   if (!is.null(true_g_plot)) {
+#     points(y_values, true_g_plot, pch = 2, cex = 0.8, col = 'black')
+    
+#     legend('bottomright', legend = c('Posterior mean (raw)', 'Truth (raw)'), 
+#            lty = c(1, NA), pch = c(NA, 2), lwd = c(3, NA), 
+#            col = c('black', 'black'), cex = 0.8)
+#   }
+  
+#   grid(col = "lightgray", lty = "dotted")
+  
+#   # Compute and report correlation if both are available
+#   if (!is.null(true_g_plot)) {
+#     correlation <- cor(g_mean_plot, true_g_plot)
+#     cat("Correlation between raw posterior mean and true transformation:", round(correlation, 3), "\n")
+    
+#     # Also report scale comparison metrics
+#     scale_ratio <- sd(g_mean_plot) / sd(true_g_plot)
+#     location_diff <- mean(g_mean_plot) - mean(true_g_plot)
+#     cat("Scale ratio (learned/true):", round(scale_ratio, 3), "\n")
+#     cat("Location difference (learned - true):", round(location_diff, 3), "\n")
+#   }
+# }
+
 #' Create all plots
 #' 
 #' @param sbart_fit Output from sbart() function
@@ -268,6 +374,9 @@ create_all_sbart_diagnostics <- function(sbart_fit, y_test, true_g_values = NULL
   # Plot 4: Transformation
   y_values <- sort(unique(sbart_fit$y))
   plot_sbart_transformation(sbart_fit, y_values, true_g_values)
+
+  # # Plot 5: Transformation (raw scale)
+  # plot_sbart_transformation_raw(sbart_fit, y_values, true_g_values)
   
   par(mfrow = c(1, 1))
   
