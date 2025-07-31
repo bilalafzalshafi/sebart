@@ -51,6 +51,98 @@ load_real_dataset <- function(dataset_name, target_feature = NULL,
     X_raw <- data[, !names(data) %in% exclude_cols]
   }
 
+  else if (dataset_name == "concrete") {
+    if (!file.exists("Concrete_Data.csv")) {
+      stop("Please download Concrete_Data.csv from UCI repository")
+    }
+    data <- read.csv("Concrete_Data.csv")
+
+    names(data) <- c("cement", "slag", "flyash", "water", "superplast", 
+                "coarse_agg", "fine_agg", "age", "strength")
+    
+    if (is.null(target_feature)) target_feature <- "strength"
+    y_raw <- data[[target_feature]]
+    X_raw <- data[, !names(data) %in% c(target_feature)]
+  }
+
+  else if (dataset_name == "studentperformance") {
+    if (!file.exists("student-mat.csv")) {
+      stop("Please download student-mat.csv from UCI Student Performance dataset")
+    }
+    data <- read.csv("student-mat.csv", sep = ";")
+    
+    # Create normalized targets
+    data$G3_norm <- data$G3 / 20  # Normalize to [0,1]
+    data$absences_norm <- data$absences / max(data$absences)
+    data$failures_norm <- data$failures / max(data$failures)
+    
+    if (is.null(target_feature)) target_feature <- "G3_norm"
+    y_raw <- data[[target_feature]]
+    
+    # Remove grade-related columns to avoid leakage
+    exclude_cols <- c(target_feature, "G1", "G2", "G3", "G3_norm", 
+                      "absences_norm", "failures_norm")
+    X_raw <- data[, !names(data) %in% exclude_cols]
+
+  }
+
+  else if (dataset_name == "glass") {
+      if (!file.exists("glass.data")) {
+        stop("Please download glass.data from UCI Glass Identification dataset")
+      }
+      data <- read.csv("glass.data", header = FALSE)
+      names(data) <- c("Id", "RI", "Na", "Mg", "Al", "Si", "K", "Ca", "Ba", "Fe", "Type")
+      
+      if (is.null(target_feature)) target_feature <- "Na"
+      
+      # Normalize oxide percentages to [0,1]
+      oxide_cols <- c("Na", "Mg", "Al", "Si", "K", "Ca", "Ba", "Fe")
+      for (col in oxide_cols) {
+        data[[col]] <- data[[col]] / 100  # Convert percentage to proportion
+      }
+      
+      y_raw <- data[[target_feature]]
+      exclude_cols <- c("Id", target_feature, "Type") # Remove ID and class
+      X_raw <- data[, !names(data) %in% exclude_cols]
+
+  }
+
+  else if (dataset_name == "parkinsons") {
+    if (!file.exists("parkinsons_updrs.data")) {
+      stop("Please download parkinsons_updrs.data from UCI Parkinsons Telemonitoring dataset")
+    }
+    data <- read.csv("parkinsons_updrs.data")
+    
+    # NHR and HNR are already ratios, DFA is bounded
+    # Normalize other potential targets
+    data$motor_norm <- data$motor_UPDRS / 100
+    data$total_norm <- data$total_UPDRS / 200
+    
+    if (is.null(target_feature)) target_feature <- "NHR"
+    y_raw <- data[[target_feature]]
+    
+    exclude_cols <- c(target_feature, "motor_UPDRS", "total_UPDRS", 
+                      "motor_norm", "total_norm")
+    X_raw <- data[, !names(data) %in% exclude_cols]
+
+  }
+
+  else if (dataset_name == "yeast") {
+    if (!file.exists("yeast.data")) {
+      stop("Please download yeast.data from UCI Yeast dataset")
+    }
+    data <- read.table("yeast.data")
+    names(data) <- c("seq_name", "mcg", "gvh", "alm", "mit", "erl", 
+                     "pox", "vac", "nuc", "class")
+    
+    if (is.null(target_feature)) target_feature <- "mcg"
+    y_raw <- data[[target_feature]]
+    
+    exclude_cols <- c("seq_name", target_feature, "class")
+    X_raw <- data[, !names(data) %in% exclude_cols]
+
+  }
+
   else {
     stop("Unknown dataset: ", dataset_name, 
          ". Available: ", paste(get_available_real_datasets(), collapse = ", "))
@@ -110,7 +202,7 @@ load_real_dataset <- function(dataset_name, target_feature = NULL,
 
 #' Get available real datasets
 get_available_real_datasets <- function() {
-  c("forestfires", "bikesharing")
+  c("forestfires", "bikesharing", "concrete", "studentperformance", "glass", "parkinsons", "yeast")
 }
 
 #' Get available target features for each dataset
@@ -118,6 +210,11 @@ get_target_features <- function(dataset_name) {
   switch(dataset_name,
     "forestfires" = c("area"),
     "bikesharing" = c("temp", "hum", "windspeed"),
+    "concrete" = c("strength"),
+    "studentperformance" = c("G3_norm", "absences_norm", "failures_norm"),
+    "glass" = c("Na", "Mg", "Al", "Si", "K", "Ca", "Ba", "Fe"),
+    "parkinsons" = c("NHR", "HNR", "DFA", "motor_norm", "total_norm"),
+    "yeast" = c("mcg", "gvh", "alm", "mit", "pox", "vac", "nuc"),
     stop("Unknown dataset: ", dataset_name)
   )
 }

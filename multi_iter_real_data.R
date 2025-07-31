@@ -3,7 +3,6 @@
 source("sbart.R")
 source("bbart_bc.R")
 source("real_data_helpers.R")  # Loads real datasets
-source("sbart_diagnostics.R")  # Loads sbart diagnostics
 
 library(ggplot2)
 library(dplyr)
@@ -306,7 +305,12 @@ main_real_data_study <- function() {
   # Define datasets and targets to test
   datasets_to_test <- list(
     "forestfires" = c("area"),
-    "bikesharing" = c("temp", "hum", "windspeed")
+    "bikesharing" = c("temp", "hum", "windspeed"),
+    "concrete" = c("strength"),
+    "glass" = c("Na", "Al", "Ca"),
+    "studentperformance" = c("G3_norm"),
+    "parkinsons" = c("NHR", "DFA"),
+    "yeast" = c("mcg", "alm")
   )
   
   for (dataset_name in names(datasets_to_test)) {
@@ -352,16 +356,16 @@ main_real_data_study <- function() {
     ggsave("real_data_time.png", perf_plots$time, width = 12, height = 8)
   }
   
-  # Prediction plots for each study
-  for (study_name in names(all_results)) {
-    pred_plots <- create_real_data_prediction_plots(all_results, study_name)
+  # # Prediction plots for each study
+  # for (study_name in names(all_results)) {
+  #   pred_plots <- create_real_data_prediction_plots(all_results, study_name)
     
-    if (length(pred_plots) > 0) {
-      combined_plot <- do.call(grid.arrange, c(pred_plots, ncol = 2))
-      ggsave(paste0("real_data_predictions_", study_name, ".png"), 
-             combined_plot, width = 12, height = 8)
-    }
-  }
+  #   if (length(pred_plots) > 0) {
+  #     combined_plot <- do.call(grid.arrange, c(pred_plots, ncol = 2))
+  #     ggsave(paste0("real_data_predictions_", study_name, ".png"), 
+  #            combined_plot, width = 12, height = 8)
+  #   }
+  # }
   
   cat("\n=== REAL DATA SUMMARY STATISTICS ===\n")
   combined_metrics <- do.call(rbind, lapply(all_results, function(x) x$metrics))
@@ -423,7 +427,7 @@ if (interactive()) {
   
   # You can also run individual studies:
   # single_result <- run_real_data_study("wine_quality", "alcohol", 5)
-  # all_results <- main_real_data_study()
+  all_results <- main_real_data_study()
 } else {
   cat("Source this file and run main_real_data_study() to start the study.\n")
 }
