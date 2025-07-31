@@ -139,7 +139,7 @@ bbart_bc = function(y, X, X_test = X,
     # MLE for lambda given initial fit:
     opt = optim(par = 0.5,
                 fn = function(l_bc){
-                  z_bc = g_bc(y, lambda = l_bc)
+                  z_bc = SeBR:::g_bc(y, lambda = l_bc)
                   mean((z_bc - y_hat_initial)^2)
                 }, method = "L-BFGS-B", lower = 0.01, upper = 1.99
     )
@@ -152,7 +152,7 @@ bbart_bc = function(y, X, X_test = X,
   }
 
   # Latent data:
-  z = g_bc(y, lambda = lambda)
+  z = SeBR:::g_bc(y, lambda = lambda)
   z_scaled = (z - mean(z))/sd(z) # standardize for BART
   z_scale_mean = mean(z)
   z_scale_sd = sd(z)
@@ -207,10 +207,10 @@ bbart_bc = function(y, X, X_test = X,
       current_sigma = current_sample$sigma[1] * z_scale_sd
 
       # Sample lambda using slice sampling:
-      lambda = uni.slice(x0 = lambda,
+      lambda = SeBR:::uni.slice(x0 = lambda,
                          g = function(l_bc){
                            # Likelihood for lambda:
-                           z_bc = g_bc(y, lambda = l_bc)
+                           z_bc = SeBR:::g_bc(y, lambda = l_bc)
                            sum(dnorm(z_bc,
                                      mean = current_fit,
                                      sd = current_sigma, log = TRUE)) +
@@ -220,7 +220,7 @@ bbart_bc = function(y, X, X_test = X,
                          w = 1/2, m = 50, lower = 0, upper = 2)
 
       # Update z and rescale:
-      z = g_bc(y, lambda = lambda)
+      z = SeBR:::g_bc(y, lambda = lambda)
       z_scale_mean = mean(z)
       z_scale_sd = sd(z)
       z_scaled = (z - z_scale_mean)/z_scale_sd
@@ -257,17 +257,17 @@ bbart_bc = function(y, X, X_test = X,
         # Add noise
         current_sigma_scaled = bart_sample$sigma[1]
         ztilde = bart_pred + current_sigma_scaled * z_scale_sd * rnorm(n = n_test)
-        post_ypred[isave,] = g_inv_bc(ztilde, lambda = lambda)
+        post_ypred[isave,] = SeBR:::g_inv_bc(ztilde, lambda = lambda)
 
         # Posterior samples of the transformation:
-        post_g[isave,] = g_bc(y0, lambda = lambda)
+        post_g[isave,] = SeBR:::g_bc(y0, lambda = lambda)
         post_lambda[isave] = lambda
 
         # And reset the skip counter:
         skipcount = 0
       }
     }
-    if(verbose) computeTimeRemaining(nsi, timer0, nstot)
+    if(verbose) SeBR:::computeTimeRemaining(nsi, timer0, nstot)
   }
   # Summarize computing time:
   if(verbose){

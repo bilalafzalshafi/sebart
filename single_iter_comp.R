@@ -1,11 +1,9 @@
 # Comparison script for semiparametric regression models
 
+library(SeBR)
 library(dbarts)
-source("helper_funs.R")
-source("source_sba.R") 
 source("sbart.R")
 source("bbart_bc.R")
-source("slice.R")
 source("simulation_helpers.R")
 
 set.seed(123)
@@ -30,7 +28,7 @@ cat("Fitting models...\n")
 cat("Fitting regular BART...\n")
 timing$bart = system.time({
   tryCatch({
-    fit_bart = bart(x.train = X, y.train = y, x.test = X_test, 
+    fit_bart = dbarts::bart(x.train = X, y.train = y, x.test = X_test, 
                     ntree = 200, ndpost = 1000, nskip = 1000, verbose = FALSE)
     results$bart = list(
       fitted.values = fit_bart$yhat.test.mean,
@@ -60,7 +58,7 @@ timing$sbart = system.time({
 cat("Fitting sblm...\n")
 timing$sblm = system.time({
   tryCatch({
-    fit_sblm = sblm(y = y, X = X, X_test = X_test)
+    fit_sblm = SeBR::sblm(y = y, X = X, X_test = X_test)
     results$sblm = fit_sblm
   }, error = function(e) {
     cat("SBLM failed:", e$message, "\n")

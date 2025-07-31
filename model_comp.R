@@ -1,10 +1,8 @@
 # Comparison script for semiparametric regression models
+library(SeBR)
 library(dbarts)
-source("helper_funs.R")
-source("source_sba.R") 
 source("sbart.R")
 source("bbart_bc.R")
-source("slice.R")
 
 set.seed(123)
 
@@ -96,7 +94,7 @@ cat("Fitting models...\n")
 # 1. Regular BART (no transformation)
 cat("Fitting regular BART...\n")
 timing$bart = system.time({
-  fit_bart = bart(x.train = X, y.train = y, x.test = X_test, 
+  fit_bart = dbarts::bart(x.train = X, y.train = y, x.test = X_test, 
                   ntree = 200, ndpost = 1000, nskip = 1000)
 })
 results$bart = list(
@@ -116,7 +114,7 @@ results$sbart = fit_sbart
 # 3. Semiparametric Bayesian Linear Model (sblm)
 cat("Fitting sblm...\n")
 timing$sblm = system.time({
-  fit_sblm = sblm(y = y, X = X, X_test = X_test)
+  fit_sblm = SeBR::sblm(y = y, X = X, X_test = X_test)
 })
 results$sblm = fit_sblm
 
@@ -240,7 +238,7 @@ if(!is.null(results$bbart_bc$post_lambda)) {
   lambda_mean = mean(results$bbart_bc$post_lambda)
   y_seq = seq(min(y), max(y), length.out = 100)
   
-  g_bc_vals = g_bc(y_seq, lambda = lambda_mean)
+  g_bc_vals = SeBR:::g_bc(y_seq, lambda = lambda_mean)
   plot(y_seq, g_bc_vals, main = paste("BBART_BC (λ =", round(lambda_mean, 2), ")"), 
        xlab = "y", ylab = "g(y)", type = "l", lwd = 2)
     

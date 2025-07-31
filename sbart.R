@@ -94,6 +94,12 @@ sbart = function(y, X, X_test = X,
       call. = FALSE
     )
   }
+  if (!requireNamespace("SeBR", quietly = TRUE)) {
+    stop(
+      "Package \"SeBR\" must be installed to use this function.",
+      call. = FALSE
+    )
+  }
 
   # Initial checks:
   if(!is.matrix(X)) stop("X must be a matrix (rows = observations, columns = variables)")
@@ -188,7 +194,7 @@ sbart = function(y, X, X_test = X,
   Fz_eval = rowMeans(Fzx_eval)  # average across observations for initial grid
 
   # Check: update the grid if needed
-  zcon = contract_grid(z = z_grid,
+  zcon = SeBR:::contract_grid(z = z_grid,
                        Fz = Fz_eval,
                        lower = 0.001, upper = 0.999)
   z_grid = zcon$z; Fz_eval = zcon$Fz; ngrid = length(z_grid)
@@ -205,7 +211,7 @@ sbart = function(y, X, X_test = X,
   Fz_eval = rowMeans(Fzx_eval)
 
   # Compute initial transformation:
-  g = g_fun(y = y0,
+  g = SeBR:::g_fun(y = y0,
             Fy_eval = Fy_eval,
             z = z_grid,
             Fz_eval = Fz_eval)
@@ -219,7 +225,7 @@ sbart = function(y, X, X_test = X,
     quantile(y0, seq(0, 1, length.out = ngrid/2)))))
 
   # Inverse transformation function:
-  g_inv = g_inv_approx(g = g, t_grid = y_grid)
+  g_inv = SeBR:::g_inv_approx(g = g, t_grid = y_grid)
 
   #----------------------------------------------------------------------------
   # Initialize location-scale parameters following LS-PX framework
@@ -277,7 +283,7 @@ sbart = function(y, X, X_test = X,
 
       # Bayesian bootstrap for the CDFs
       # BB CDF of y:
-      Fy_eval = bb(y)(y0) # applied to y, evaluated at y0
+      Fy_eval = SeBR:::bb(y)(y0) # applied to y, evaluated at y0
 
       # BB CDF of z (only need if X is random)
       if(!fixedX){
@@ -294,14 +300,14 @@ sbart = function(y, X, X_test = X,
       }
 
       # Compute the transformation:
-      g = g_fun(y = y0, Fy_eval = Fy_eval,
+      g = SeBR:::g_fun(y = y0, Fy_eval = Fy_eval,
                 z = z_grid, Fz_eval = Fz_eval)
 
       # Update z:
       z = g(y)
 
       # Update the inverse transformation function:
-      g_inv = g_inv_approx(g = g, t_grid = y_grid)
+      g_inv = SeBR:::g_inv_approx(g = g, t_grid = y_grid)
     }
 
     #----------------------------------------------------------------------------
@@ -359,7 +365,7 @@ sbart = function(y, X, X_test = X,
       post_g[nsi - nburn,] = (g(y0) - mu)/sigma_epsilon
     }
 
-    if(verbose) computeTimeRemaining(nsi, timer0, nsave + nburn)
+    if(verbose) SeBR:::computeTimeRemaining(nsi, timer0, nsave + nburn)
   }
 
   # Summarize computing time:

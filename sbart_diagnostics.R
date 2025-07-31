@@ -1,9 +1,8 @@
 # SBART diagnostic functions
 
-source("simulation_helpers.R")
+library(SeBR)
 source("sbart.R")
-source("source_sba.R") # contract_grid
-source("helper_funs.R") # bb
+source("simulation_helpers.R")
 
 #' Point estimate plot for SBART
 #' 

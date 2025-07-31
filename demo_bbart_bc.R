@@ -2,11 +2,8 @@
 
 # Load required libraries
 library(dbarts)
-
-# Source helper functions (adjust paths as needed)
-source("helper_funs.R")  # for g_bc, g_inv_bc functions
+library(SeBR)
 source("bbart_bc.R")
-source("slice.R")  # for uni.slice function
 
 # Set seed for reproducibility
 set.seed(456)

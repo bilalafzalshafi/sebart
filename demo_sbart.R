@@ -2,11 +2,8 @@
 
 # Load required libraries
 library(dbarts)
-
-# Source helper functions (adjust paths as needed)
-source("helper_funs.R")
+library(SeBR)
 source("sbart.R")
-source("source_sba.R")  # for g_fun, g_inv_approx, bb, etc.
 
 # Set seed for reproducibility
 set.seed(123)

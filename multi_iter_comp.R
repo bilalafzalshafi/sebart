@@ -1,16 +1,14 @@
 # Multi-iteration comparison script for semiparametric regression models
 
+library(SeBR)
 library(dbarts)
 library(ggplot2)
 library(dplyr)
 library(tidyr)
 library(gridExtra)
 
-source("helper_funs.R")
-source("source_sba.R") 
 source("sbart.R")
 source("bbart_bc.R")
-source("slice.R")
 source("simulation_helpers.R")
 
 set.seed(123)
@@ -38,7 +36,7 @@ fit_all_models <- function(data) {
   cat("Fitting BART...")
   timing$bart <- system.time({
     tryCatch({
-      fit_bart <- bart(x.train = X_train, y.train = y_train, x.test = X_test, 
+      fit_bart <- dbarts::bart(x.train = X_train, y.train = y_train, x.test = X_test, 
                        ntree = 200, ndpost = 1000, nskip = 1000, verbose = FALSE)
       results$bart <- list(
         fitted.values = fit_bart$yhat.test.mean,
@@ -68,7 +66,7 @@ fit_all_models <- function(data) {
   cat("Fitting SBLM...")
   timing$sblm <- system.time({
     tryCatch({
-      fit_sblm <- sblm(y = y_train, X = X_train, X_test = X_test)
+      fit_sblm <- SeBR::sblm(y = y_train, X = X_train, X_test = X_test)
       results$sblm <- fit_sblm
     }, error = function(e) {
       cat("SBLM failed:", e$message, "\n")

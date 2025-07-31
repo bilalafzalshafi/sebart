@@ -1,5 +1,3 @@
-source("helper_funs.R")
-
 #' Generate data for SBART testing scenarios using Friedman's function
 #' 
 #' @param n_train number of training observations
@@ -92,7 +90,7 @@ get_transformation <- function(scenario) {
 
     "box_cox" = list(
       g = function(y) g_bc(y, lambda = 0.5),
-      g_inv = function(z) g_inv_bc(z, lambda = 0.5),
+      g_inv = function(z) SebR:::g_inv_bc(z, lambda = 0.5),
       description = "Inverse Box-Cox square root transformation"
     ),
 
