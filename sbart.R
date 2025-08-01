@@ -5,7 +5,7 @@
 #' for the regression function. The transformation is modeled as unknown
 #' and learned jointly with the BART model using a blocked Gibbs sampler
 #' with proper location-scale parameter expansion for robustness.
-#' A pilot BART run is used to approximate the posterior distribution
+#' A pilot BART run or Random Forest can be used to approximate the posterior distribution
 #' needed for transformation inference.
 #'
 #' @param y \code{n x 1} response vector
@@ -16,8 +16,16 @@
 #' the transformation; otherwise treat covariates as random with an unknown distribution
 #' @param approx_g logical; if TRUE, apply large-sample
 #' approximation for the transformation
+#' @param pilot_method character; method for pilot approximation. Either "bart" (default)
+#' or "rf" (Random Forest)
 #' @param pilot_ndraws number of MCMC draws for pilot BART run to approximate posterior
-#' @param pilot_nburn number of burn-in iterations for pilot BART run  
+#' (ignored if pilot_method = "rf")
+#' @param pilot_nburn number of burn-in iterations for pilot BART run
+#' (ignored if pilot_method = "rf")
+#' @param rf_ntree number of trees in Random Forest (used if pilot_method = "rf")
+#' @param rf_nodesize minimum size of terminal nodes in Random Forest (used if pilot_method = "rf")
+#' @param rf_mtry number of variables randomly sampled as candidates at each split in Random Forest
+#' (used if pilot_method = "rf"; default is max(floor(p/3), 1))
 #' @param ntree number of trees in BART ensemble
 #' @param nsave number of MCMC simulations to save
 #' @param nburn number of MCMC iterations to discard
@@ -40,7 +48,7 @@
 #'
 #' @details This function provides fully Bayesian inference for a
 #' transformed BART model using blocked Gibbs sampling with proper
-#' location-scale parameter expansion (LS-PX) for robustness.
+#' location-scale parameter expansion for robustness.
 #' The transformation is modeled as unknown and learned jointly
 #' with the BART model (unless \code{approx_g} = TRUE, which then uses
 #' a point approximation). This model applies for real-valued data, positive data, and
@@ -48,7 +56,7 @@
 #' By default, \code{fixedX} is set to \code{FALSE} for smaller datasets (\code{n < 500})
 #' and \code{TRUE} for larger datasets.
 #'
-#' The approach uses a pilot BART run to approximate the posterior distribution
+#' The approach uses either a pilot BART run or Random Forest to approximate the posterior distribution
 #' required for transformation inference. The main MCMC then alternates
 #' between sampling the transformation (given current BART fit), sampling
 #' location-scale parameters (μ,σ) for robustness, and updating the BART model.
@@ -69,16 +77,24 @@
 #' # Test data
 #' X_test <- matrix(rnorm(50*p), 50, p)
 #' 
-#' # Fit the semiparametric Bayesian BART model:
-#' fit <- sbart(y = y, X = X, X_test = X_test)
-#' names(fit) # what is returned
+#' # Fit the semiparametric Bayesian BART model with pilot BART:
+#' fit1 <- sbart(y = y, X = X, X_test = X_test, pilot_method = "bart")
+#' 
+#' # Fit with Random Forest initialization (faster):
+#' fit2 <- sbart(y = y, X = X, X_test = X_test, pilot_method = "rf")
+#' 
+#' names(fit1) # what is returned
 #' }
 #' @export
 sbart = function(y, X, X_test = X,
                  fixedX = (length(y) >= 500),
                  approx_g = FALSE,
+                 pilot_method = c("bart", "rf"),
                  pilot_ndraws = 500,
                  pilot_nburn = 100,
+                 rf_ntree = 500,
+                 rf_nodesize = 5,
+                 rf_mtry = NULL,
                  ntree = 200,
                  nsave = 1000,
                  nburn = 1000,
@@ -87,6 +103,9 @@ sbart = function(y, X, X_test = X,
                  n.threads = 1,
                  seed = NA_integer_){
 
+  # Match pilot method argument
+  pilot_method = match.arg(pilot_method)
+
   # Library required here:
   if (!requireNamespace("dbarts", quietly = TRUE)) {
     stop(
@@ -94,9 +113,10 @@ sbart = function(y, X, X_test = X,
       call. = FALSE
     )
   }
-  if (!requireNamespace("SeBR", quietly = TRUE)) {
+  
+  if (pilot_method == "rf" && !requireNamespace("randomForest", quietly = TRUE)) {
     stop(
-      "Package \"SeBR\" must be installed to use this function.",
+      "Package \"randomForest\" must be installed to use pilot_method = 'rf'.",
       call. = FALSE
     )
   }
@@ -115,16 +135,12 @@ sbart = function(y, X, X_test = X,
   n_test = nrow(X_test) # number of testing data points
   
   # Parameter validation
-  if(pilot_ndraws < 50) stop('pilot_ndraws must be at least 50')
+  if(pilot_method == "bart" && pilot_ndraws < 50) stop('pilot_ndraws must be at least 50')
+  if(pilot_method == "rf" && is.null(rf_mtry)) rf_mtry = max(floor(p/3), 1)
   if(ntree < 10) stop('ntree must be at least 10')
   
   # Hyperparameters for Gamma(a_sigma, b_sigma) prior on error precision
   a_sigma = b_sigma = 0.001
-
-  # if(verbose) {
-  #   original_y <- y  # Store original y values
-  #   cat("Original y stored for comparison\n")
-  # }
   
   #----------------------------------------------------------------------------
   # Initialize the transformation:
@@ -140,75 +156,143 @@ sbart = function(y, X, X_test = X,
   z = qnorm(Fy(y))
 
   #----------------------------------------------------------------------------
-  # Pilot BART run to approximate posterior
-  if(verbose) cat('Running pilot BART to approximate posterior...\n')
+  # Pilot approximation to approximate posterior
   
-  # Construct data frame with matrix columns
-  X_df <- as.data.frame(X)
-  colnames(X_df) <- paste0("X", 1:ncol(X))
-  pilot_data <- cbind(data.frame(z = z), X_df)
-  
-  # Set up pilot BART sampler
-  pilot_sampler = dbarts::dbarts(
-    formula = z ~ .,
-    data = pilot_data,
-    control = dbarts::dbartsControl(
-      verbose = FALSE,
-      keepTrainingFits = TRUE,
-      n.trees = ntree,
-      n.chains = 1L,
-      n.threads = 1L,
-      rngSeed = seed
+  if(pilot_method == "bart") {
+    
+    if(verbose) cat('Running pilot BART to approximate posterior...\n')
+    
+    # Construct data frame with matrix columns
+    X_df <- as.data.frame(X)
+    colnames(X_df) <- paste0("X", 1:ncol(X))
+    pilot_data <- cbind(data.frame(z = z), X_df)
+    
+    # Set up pilot BART sampler
+    pilot_sampler = dbarts::dbarts(
+      formula = z ~ .,
+      data = pilot_data,
+      control = dbarts::dbartsControl(
+        verbose = FALSE,
+        keepTrainingFits = TRUE,
+        n.trees = ntree,
+        n.chains = 1L,
+        n.threads = 1L,
+        rngSeed = seed
+      )
     )
-  )
 
-  # Run pilot MCMC using object method
-  pilot_samples = pilot_sampler$run(numBurnIn = pilot_nburn, numSamples = pilot_ndraws)
+    # Run pilot MCMC using object method
+    pilot_samples = pilot_sampler$run(numBurnIn = pilot_nburn, numSamples = pilot_ndraws)
 
-  # Extract posterior summaries from pilot run
-  pilot_fits = pilot_samples$train # n x pilot_ndraws matrix
-  pilot_sigma = mean(pilot_samples$sigma)
-  
-  if(verbose) cat('Pilot run complete. Initializing main sampler...\n')
+    # Extract posterior summaries from pilot run
+    pilot_fits = pilot_samples$train # n x pilot_ndraws matrix
+    pilot_sigma = mean(pilot_samples$sigma)
+    
+    if(verbose) cat('Pilot run complete. Initializing main sampler...\n')
 
-  #----------------------------------------------------------------------------
-  # Grid of values for the CDF of z based on pilot estimates:
-  z_grid = sort(unique(
-    sapply(range(pilot_fits), function(xtemp){
-      qnorm(seq(0.01, 0.99, length.out = ngrid),
-            mean = xtemp,
-            sd = pilot_sigma)
+    #--------------------------------------------------------------------------
+    # Grid of values for the CDF of z based on pilot estimates:
+    z_grid = sort(unique(
+      sapply(range(pilot_fits), function(xtemp){
+        qnorm(seq(0.01, 0.99, length.out = ngrid),
+              mean = xtemp,
+              sd = pilot_sigma)
+      })
+    ))
+
+    # Store F_{Z | X = x_i}(t) for all x_i & all t in z_grid
+    # This integrates out the BART function from its posterior:
+    zrep = rep(z_grid, times = pilot_ndraws)
+    Fzx_eval = sapply(1:n, function(i){
+      rowMeans(matrix(pnorm(zrep,
+                            mean = rep(pilot_fits[i,], each = ngrid),
+                            sd = pilot_sigma), nrow = ngrid))
     })
-  ))
 
-  # Store F_{Z | X = x_i}(t) for all x_i & all t in z_grid
-  # This integrates out the BART function from its posterior:
-  zrep = rep(z_grid, times = pilot_ndraws)
-  Fzx_eval = sapply(1:n, function(i){
-    rowMeans(matrix(pnorm(zrep,
-                          mean = rep(pilot_fits[i,], each = ngrid),
-                          sd = pilot_sigma), nrow = ngrid))
-  })
+    # CDF of z using pilot estimates (initial approximation):
+    Fz_eval = rowMeans(Fzx_eval)  # average across observations for initial grid
 
-  # CDF of z using pilot estimates (initial approximation):
-  Fz_eval = rowMeans(Fzx_eval)  # average across observations for initial grid
+    # Check: update the grid if needed
+    zcon = SeBR:::contract_grid(z = z_grid,
+                         Fz = Fz_eval,
+                         lower = 0.001, upper = 0.999)
+    z_grid = zcon$z; Fz_eval = zcon$Fz; ngrid = length(z_grid)
+    
+    # Recompute Fzx_eval with updated grid
+    zrep = rep(z_grid, times = pilot_ndraws)
+    Fzx_eval = sapply(1:n, function(i){
+      rowMeans(matrix(pnorm(zrep,
+                            mean = rep(pilot_fits[i,], each = ngrid),
+                            sd = pilot_sigma), nrow = ngrid))
+    })
 
-  # Check: update the grid if needed
-  zcon = SeBR:::contract_grid(z = z_grid,
-                       Fz = Fz_eval,
-                       lower = 0.001, upper = 0.999)
-  z_grid = zcon$z; Fz_eval = zcon$Fz; ngrid = length(z_grid)
-  
-  # Recompute Fzx_eval with updated grid
-  zrep = rep(z_grid, times = pilot_ndraws)
-  Fzx_eval = sapply(1:n, function(i){
-    rowMeans(matrix(pnorm(zrep,
-                          mean = rep(pilot_fits[i,], each = ngrid),
-                          sd = pilot_sigma), nrow = ngrid))
-  })
-
-  # Recompute Fz_eval with updated grid
-  Fz_eval = rowMeans(Fzx_eval)
+    # Recompute Fz_eval with updated grid
+    Fz_eval = rowMeans(Fzx_eval)
+    
+  } else if(pilot_method == "rf") {
+    
+    if(verbose) cat("Fitting Random Forest for initial approximation...\n")
+    
+    # Load randomForest library
+    library(randomForest)
+    
+    # Fit Random Forest with variance estimation
+    rf_fit = randomForest(x = X, y = z, 
+                          ntree = rf_ntree,
+                          nodesize = rf_nodesize,
+                          mtry = rf_mtry,
+                          keep.inbag = TRUE,
+                          importance = FALSE)
+    
+    # Get predictions and individual tree predictions
+    rf_pred = predict(rf_fit, X, predict.all = TRUE)
+    rf_mean = rf_pred$aggregate
+    rf_trees = rf_pred$individual
+    
+    # Compute ensemble variance (uncertainty from trees)
+    rf_var_ensemble = apply(rf_trees, 1, var)
+    
+    # Estimate residual variance using out-of-bag predictions
+    oob_residuals = z - rf_fit$predicted
+    sigma_epsilon_hat = sd(oob_residuals)
+    
+    # Total predictive variance: ensemble + residual
+    rf_var_total = rf_var_ensemble + sigma_epsilon_hat^2
+    
+    #--------------------------------------------------------------------------
+    # Create approximate posterior samples for transformation inference
+    
+    # Number of samples for approximating the posterior
+    n_approx = 1000
+    
+    # Generate samples from approximate posterior at each observation
+    # This mimics what pilot BART would provide
+    z_samples = matrix(NA, n_approx, n)
+    
+    for(i in 1:n){
+      # Sample from N(rf_mean[i], rf_var_total[i])
+      z_samples[,i] = rnorm(n_approx, 
+                            mean = rf_mean[i], 
+                            sd = sqrt(rf_var_total[i]))
+    }
+    
+    # Compute CDF approximations needed for transformation
+    # Grid for z values
+    z_grid = seq(min(z_samples) - 2*sigma_epsilon_hat, 
+                 max(z_samples) + 2*sigma_epsilon_hat, 
+                 length.out = ngrid)
+    
+    # Compute F_{Z|X=x_i} for each observation
+    Fzx_eval = matrix(NA, ngrid, n)
+    for(i in 1:n){
+      Fzx_eval[,i] = ecdf(z_samples[,i])(z_grid)
+    }
+    
+    # CDF of z using RF estimates (initial approximation):
+    Fz_eval = rowMeans(Fzx_eval)
+    
+    if(verbose) cat('Random Forest approximation complete. Initializing main sampler...\n')
+  }
 
   # Compute initial transformation:
   g = SeBR:::g_fun(y = y0,
@@ -232,7 +316,7 @@ sbart = function(y, X, X_test = X,
   mu = mean(z)  # location parameter
   sigma_epsilon = sd(z)  # scale parameter
   
-  # Standardize z for BART (following LS-PX: z_standardized = (z - mu)/sigma)
+  # Standardize z for BART
   z_standardized = (z - mu)/sigma_epsilon
   
   # Set up main BART sampler with standardized data
@@ -266,70 +350,63 @@ sbart = function(y, X, X_test = X,
   post_mu = rep(NA, nsave)
   post_sigma = rep(NA, nsave)
 
-  # Run the main MCMC:
-  if(verbose) timer0 = proc.time()[3] # For timing the sampler
+  # Initialize timer for progress reporting:
+  if(verbose) timer0 = proc.time()[3]
+
+  #----------------------------------------------------------------------------
+  # MCMC:
   for(nsi in 1:(nburn + nsave)){
 
-    #----------------------------------------------------------------------------
-    # Block 1: sample the transformation
+    #--------------------------------------------------------------------------
+    # Sample the transformation
     if(!approx_g){
 
-      # if(verbose && nsi <= 5) {  # Only log first 5 iterations
-      # if(!identical(y, original_y)) {
-      #     stop("Error: y values have been modified. Iteration ", nsi)
-      #   }
-      #   cat("Iteration", nsi, "- y values unchanged\n")
-      # }
+      # Bayesian bootstrap for Y:
+      Fy_eval = SeBR:::bb(y)(y0)
 
-      # Bayesian bootstrap for the CDFs
-      # BB CDF of y:
-      Fy_eval = SeBR:::bb(y)(y0) # applied to y, evaluated at y0
-
-      # BB CDF of z (only need if X is random)
+      # CDF of Z:
       if(!fixedX){
-
-        # Dirichlet(1) weights for x:
+        # Random X: re-randomize the weights
         weights_x = rgamma(n = n, shape = 1)
         weights_x = weights_x/sum(weights_x)
-
-        # CDF of Z evaluated on the grid using pilot posterior:
-        Fz_eval = Fzx_eval%*%weights_x
+        Fz_eval = Fzx_eval %*% weights_x
       } else {
-        # Fixed X case - use average across observations
+        # Fixed X: simple average
         Fz_eval = rowMeans(Fzx_eval)
       }
 
-      # Compute the transformation:
-      g = SeBR:::g_fun(y = y0, Fy_eval = Fy_eval,
-                z = z_grid, Fz_eval = Fz_eval)
+      # Sample the transformation:
+      g = SeBR:::g_fun(y = y0,
+                Fy_eval = Fy_eval,
+                z = z_grid,
+                Fz_eval = Fz_eval)
 
-      # Update z:
+      # Apply the transformation:
       z = g(y)
 
-      # Update the inverse transformation function:
+      # Update the inverse transformation:
       g_inv = SeBR:::g_inv_approx(g = g, t_grid = y_grid)
     }
 
-    #----------------------------------------------------------------------------
-    # Block 2: sample location-scale parameters (μ,σ) following LS-PX framework
-    
-    # Get current BART fit for residual calculation
+    #--------------------------------------------------------------------------
+    # Sample location-scale parameters (μ, σ) using LS-PX
+
+    # Get current BART fit
     current_sample = main_sampler$run(numBurnIn = 0, numSamples = 1)
-    current_fit_std = as.vector(current_sample$train) # standardized scale
-    current_fit = mu + sigma_epsilon * current_fit_std # original scale
-    
-    # Residuals on original scale
+    current_fit_std = as.vector(current_sample$train)
+    current_fit = mu + sigma_epsilon * current_fit_std
+
+    # Residuals
     residuals = z - current_fit
-    
-    # Sample sigma_epsilon (scale parameter) using conjugate gamma prior
+
+    # Sample sigma_epsilon (scale parameter)
     SSR = sum(residuals^2)
     sigma_epsilon = 1/sqrt(rgamma(n = 1,
                                   shape = a_sigma + n/2,
                                   rate = b_sigma + SSR/2))
-    
-    # Sample mu (location parameter) using conjugate normal prior
-    # Prior: mu ~ N(0, large_var), which is essentially flat
-    mu_var = 1000  # diffuse prior variance
+
+    # Sample mu (location parameter)
+    mu_var = 1000  # Diffuse prior variance
     mu_post_var = 1/(n/sigma_epsilon^2 + 1/mu_var)
     mu_post_mean = mu_post_var * sum(z - current_fit + mu)/sigma_epsilon^2
     mu = rnorm(1, mean = mu_post_mean, sd = sqrt(mu_post_var))
@@ -365,7 +442,7 @@ sbart = function(y, X, X_test = X,
       post_g[nsi - nburn,] = (g(y0) - mu)/sigma_epsilon
     }
 
-    if(verbose) SeBR:::computeTimeRemaining(nsi, timer0, nsave + nburn)
+    if(verbose) computeTimeRemaining(nsi, timer0, nsave + nburn)
   }
 
   # Summarize computing time:
@@ -376,7 +453,8 @@ sbart = function(y, X, X_test = X,
     } else cat(paste('Total time:', round(tfinal), 'seconds\n'))
   }
 
-  return(list(
+  # Prepare return list
+  result_list = list(
     fitted.values = colMeans(post_ypred),
     post_ypred = post_ypred,
     post_g = post_g,
@@ -385,7 +463,21 @@ sbart = function(y, X, X_test = X,
     model = 'sbart', 
     y = y, X = X, X_test = X_test, 
     fixedX = fixedX, approx_g = approx_g,
-    pilot_ndraws = pilot_ndraws, pilot_nburn = pilot_nburn,
+    pilot_method = pilot_method,
     ntree = ntree,
-    n.threads = n.threads, seed = seed))
+    n.threads = n.threads, seed = seed
+  )
+  
+  # Add method-specific parameters to return list
+  if(pilot_method == "bart") {
+    result_list$pilot_ndraws = pilot_ndraws
+    result_list$pilot_nburn = pilot_nburn
+  } else {
+    result_list$rf_fit = rf_fit
+    result_list$rf_ntree = rf_ntree
+    result_list$rf_nodesize = rf_nodesize
+    result_list$rf_mtry = rf_mtry
+  }
+  
+  return(result_list)
 }

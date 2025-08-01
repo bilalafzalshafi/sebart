@@ -3,6 +3,7 @@
 library(SeBR)
 library(dbarts)
 source("sbart.R")
+source("sbart_rf.R")
 source("bbart_bc.R")
 source("simulation_helpers.R")
 
@@ -79,6 +80,20 @@ timing$bbart_bc = system.time({
   })
 })
 
+# 5. Semiparametric Bayesian BART with Random Forest initialization (sbart_rf)
+cat("Fitting sbart_rf...\n")
+timing$sbart_rf = system.time({
+  tryCatch({
+    fit_sbart_rf = sbart(y = y, X = X, X_test = X_test,
+                     pilot_method = "rf",
+                     ntree = 200, nsave = 1000, nburn = 1000, verbose = FALSE)
+    results$sbart_rf = fit_sbart_rf
+  }, error = function(e) { 
+    cat("SBART_RF failed:", e$message, "\n")
+    results$sbart_rf <<- NULL
+  })
+})
+
 cat("\nEvaluating performance...\n")
 
 # Calculate RMSE for each model
@@ -130,10 +145,10 @@ for (model_name in names(results)) {
 
 print(performance)
 
-par(mfrow = c(2, 2))
+par(mfrow = c(2, 3))
 
-model_names <- c("bart", "sbart", "sblm", "bbart_bc")
-plot_titles <- c("BART", "SBART", "SBLM", "BBART_BC")
+model_names <- c("bart", "sbart", "sblm", "bbart_bc", "sbart_rf")
+plot_titles <- c("BART", "SBART", "SBLM", "BBART_BC", "SBART_RF")
 
 for (i in 1:4) {
   if (model_names[i] %in% names(results) && !is.null(results[[model_names[i]]])) {
@@ -160,7 +175,7 @@ for (i in 1:4) {
 par(mfrow = c(1, 1))
 
 dev.new()
-par(mfrow = c(1, 3))
+par(mfrow = c(1, 4))
 
 if (!is.null(results$sbart$post_g)) {
   y_unique = sort(unique(y))
@@ -205,6 +220,23 @@ if (!is.null(results$bbart_bc$post_lambda)) {
   abline(v = lambda_mean, col = "red", lwd = 2)
   text(lambda_mean, max(hist(results$bbart_bc$post_lambda, plot = FALSE)$counts) * 0.8,
        paste("Mean:", round(lambda_mean, 3)), pos = 4, col = "red")
+}
+
+if (!is.null(results$sbart_rf$post_g)) {
+  y_unique = sort(unique(y))
+  g_mean = colMeans(results$sbart_rf$post_g)
+  
+  if (length(y_unique) == length(g_mean)) {
+    plot(y_unique, g_mean, main = "SBART_RF Transformation", 
+         xlab = "y", ylab = "g(y)", type = "l", lwd = 2)
+
+    # Add some posterior draws for uncertainty
+    n_draws = min(50, nrow(results$sbart_rf$post_g))
+    for (i in sample(1:nrow(results$sbart_rf$post_g), n_draws)) {
+      lines(y_unique, results$sbart_rf$post_g[i,], col = "gray", lwd = 0.5)
+    }
+    lines(y_unique, g_mean, lwd = 2, col = "black")
+  }
 }
 
 par(mfrow = c(1, 1))
