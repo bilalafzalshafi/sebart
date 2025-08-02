@@ -2,135 +2,109 @@
 
 source("sbart.R")
 source("bbart_bc.R")
-source("real_data_helpers.R")  # Loads real datasets
+source("real_data_helpers.R")
 
 library(ggplot2)
 library(dplyr)
 library(tidyr)
 library(gridExtra)
 
-# Set parameters
-n_iterations <- 100
+n_iterations <- 2
 
-#' Run single iteration on real data
 run_real_data_iteration <- function(dataset_name, target_feature, 
                                    models_to_test = c("sbart", "bbart_bc", "bart", "sblm"),
                                    iteration_seed = 123,
                                    alpha_level = 0.10) {
   
-  # Load data for this iteration
   real_data <- load_real_dataset(dataset_name, target_feature, seed = iteration_seed)
   
   results <- list()
   
   for (model_name in models_to_test) {
-    cat("  Testing", model_name, "...\n")
     
     start_time <- Sys.time()
     
-    tryCatch({
-      if (model_name == "sbart") {
-        fit <- sbart(y = real_data$y_train, X = real_data$X_train, 
-                     X_test = real_data$X_test, ntree = 200, nsave = 1000, nburn = 1000,
-                     verbose = FALSE)
-        y_pred <- apply(fit$post_ypred, 2, mean)
-        pred_intervals_80 <- apply(fit$post_ypred, 2, quantile, c(0.10, 0.90))
-        pred_intervals <- apply(fit$post_ypred, 2, quantile, c(alpha_level/2, 1-alpha_level/2))
-        pred_intervals_95 <- apply(fit$post_ypred, 2, quantile, c(0.025, 0.975))
-        
-      } else if (model_name == "bbart_bc") {
-        fit <- bbart_bc(y = real_data$y_train, X = real_data$X_train, 
-                        X_test = real_data$X_test, ntree = 200, nsave = 1000, nburn = 1000,
-                        verbose = FALSE)
-        y_pred <- apply(fit$post_ypred, 2, mean)
-        pred_intervals_80 <- apply(fit$post_ypred, 2, quantile, c(0.10, 0.90))
-        pred_intervals <- apply(fit$post_ypred, 2, quantile, c(alpha_level/2, 1-alpha_level/2))
-        pred_intervals_95 <- apply(fit$post_ypred, 2, quantile, c(0.025, 0.975))
-        
-      } else if (model_name == "bart") {
-        library(dbarts)
-        fit <- bart(x.train = real_data$X_train, y.train = real_data$y_train,
-                    x.test = real_data$X_test, ndpost = 1000, nskip = 1000,
-                    ntree = 200, verbose = FALSE)
-        y_pred <- apply(fit$yhat.test, 2, mean)
-        pred_intervals_80 <- apply(fit$yhat.test, 2, quantile, c(0.10, 0.90))
-        pred_intervals <- apply(fit$yhat.test, 2, quantile, c(alpha_level/2, 1-alpha_level/2))
-        pred_intervals_95 <- apply(fit$yhat.test, 2, quantile, c(0.025, 0.975))
-        
-      } else if (model_name == "sblm") {
-        fit <- sblm(y = real_data$y_train, X = real_data$X_train, 
-                    X_test = real_data$X_test)
-        y_pred <- apply(fit$post_ypred, 2, mean)
-        pred_intervals_80 <- apply(fit$post_ypred, 2, quantile, c(0.10, 0.90))
-        pred_intervals <- apply(fit$post_ypred, 2, quantile, c(alpha_level/2, 1-alpha_level/2))
-        pred_intervals_95 <- apply(fit$post_ypred, 2, quantile, c(0.025, 0.975))
-      }
+    if (model_name == "sbart") {
+      fit <- sbart(y = real_data$y_train, X = real_data$X_train, 
+                    X_test = real_data$X_test, ntree = 200, nsave = 1000, nburn = 1000,
+                    verbose = FALSE)
+      y_pred <- apply(fit$post_ypred, 2, mean)
+      pred_intervals_80 <- apply(fit$post_ypred, 2, quantile, c(0.10, 0.90))
+      pred_intervals <- apply(fit$post_ypred, 2, quantile, c(alpha_level/2, 1-alpha_level/2))
+      pred_intervals_95 <- apply(fit$post_ypred, 2, quantile, c(0.025, 0.975))
       
-      end_time <- Sys.time()
+    } else if (model_name == "bbart_bc") {
+      fit <- bbart_bc(y = real_data$y_train, X = real_data$X_train, 
+                      X_test = real_data$X_test, ntree = 200, nsave = 1000, nburn = 1000,
+                      verbose = FALSE)
+      y_pred <- apply(fit$post_ypred, 2, mean)
+      pred_intervals_80 <- apply(fit$post_ypred, 2, quantile, c(0.10, 0.90))
+      pred_intervals <- apply(fit$post_ypred, 2, quantile, c(alpha_level/2, 1-alpha_level/2))
+      pred_intervals_95 <- apply(fit$post_ypred, 2, quantile, c(0.025, 0.975))
       
-      # Calculate performance metrics
-      rmse <- sqrt(mean((y_pred - real_data$y_test)^2))
+    } else if (model_name == "bart") {
+      library(dbarts)
+      fit <- bart(x.train = real_data$X_train, y.train = real_data$y_train,
+                  x.test = real_data$X_test, ndpost = 1000, nskip = 1000,
+                  ntree = 200, verbose = FALSE)
+      y_pred <- apply(fit$yhat.test, 2, mean)
+      pred_intervals_80 <- apply(fit$yhat.test, 2, quantile, c(0.10, 0.90))
+      pred_intervals <- apply(fit$yhat.test, 2, quantile, c(alpha_level/2, 1-alpha_level/2))
+      pred_intervals_95 <- apply(fit$yhat.test, 2, quantile, c(0.025, 0.975))
       
-      # Coverage rates for multiple interval levels
-      coverage_80 <- mean(real_data$y_test >= pred_intervals_80[1, ] & 
-                         real_data$y_test <= pred_intervals_80[2, ])
-      coverage_90 <- mean(real_data$y_test >= pred_intervals[1, ] & 
-                         real_data$y_test <= pred_intervals[2, ])
-      coverage_95 <- mean(real_data$y_test >= pred_intervals_95[1, ] & 
-                         real_data$y_test <= pred_intervals_95[2, ])
-      
-      # Average interval widths
-      width_80 <- mean(pred_intervals_80[2, ] - pred_intervals_80[1, ])
-      width_90 <- mean(pred_intervals[2, ] - pred_intervals[1, ])
-      width_95 <- mean(pred_intervals_95[2, ] - pred_intervals_95[1, ])
-      
-      results[[model_name]] <- list(
-        RMSE = rmse,
-        Coverage_80 = coverage_80,
-        Coverage_90 = coverage_90, 
-        Coverage_95 = coverage_95,
-        Width_80 = width_80,
-        Width_90 = width_90,
-        Width_95 = width_95,
-        Time_sec = as.numeric(difftime(end_time, start_time, units = "secs")),
-        Model = model_name,
-        Dataset = dataset_name,
-        Target = target_feature,
-        Iteration = iteration_seed,
-        Predictions = y_pred  # Store for plotting
-      )
-      
-    }, error = function(e) {
-      cat("    Error in", model_name, ":", e$message, "\n")
-      results[[model_name]] <- list(
-        RMSE = NA, Coverage_80 = NA, Coverage_90 = NA, Coverage_95 = NA,
-        Width_80 = NA, Width_90 = NA, Width_95 = NA, Time_sec = NA,
-        Model = model_name, Dataset = dataset_name, Target = target_feature, 
-        Iteration = iteration_seed, Predictions = NULL
-      )
-    })
+    } else if (model_name == "sblm") {
+      fit <- SeBR::sblm(y = real_data$y_train, X = real_data$X_train, 
+                  X_test = real_data$X_test)
+      y_pred <- apply(fit$post_ypred, 2, mean)
+      pred_intervals_80 <- apply(fit$post_ypred, 2, quantile, c(0.10, 0.90))
+      pred_intervals <- apply(fit$post_ypred, 2, quantile, c(alpha_level/2, 1-alpha_level/2))
+      pred_intervals_95 <- apply(fit$post_ypred, 2, quantile, c(0.025, 0.975))
+    }
+    
+    end_time <- Sys.time()
+    
+    rmse <- sqrt(mean((y_pred - real_data$y_test)^2))
+    
+    coverage_80 <- mean(real_data$y_test >= pred_intervals_80[1, ] & 
+                        real_data$y_test <= pred_intervals_80[2, ])
+    coverage_90 <- mean(real_data$y_test >= pred_intervals[1, ] & 
+                        real_data$y_test <= pred_intervals[2, ])
+    coverage_95 <- mean(real_data$y_test >= pred_intervals_95[1, ] & 
+                        real_data$y_test <= pred_intervals_95[2, ])
+    
+    width_80 <- mean(pred_intervals_80[2, ] - pred_intervals_80[1, ])
+    width_90 <- mean(pred_intervals[2, ] - pred_intervals[1, ])
+    width_95 <- mean(pred_intervals_95[2, ] - pred_intervals_95[1, ])
+    
+    results[[model_name]] <- list(
+      RMSE = rmse,
+      Coverage_80 = coverage_80,
+      Coverage_90 = coverage_90, 
+      Coverage_95 = coverage_95,
+      Width_80 = width_80,
+      Width_90 = width_90,
+      Width_95 = width_95,
+      Time_sec = as.numeric(difftime(end_time, start_time, units = "secs")),
+      Model = model_name,
+      Dataset = dataset_name,
+      Target = target_feature,
+      Iteration = iteration_seed,
+      Predictions = y_pred
+    )
   }
   
   return(results)
 }
 
-#' Run study for single dataset-target combination
 run_real_data_study <- function(dataset_name, target_feature, n_iterations = 10) {
-  
-  cat("Running study for", dataset_name, "-", target_feature, "\n")
-  cat("Iterations:", n_iterations, "\n")
-  
   study_results <- list()
   
-  for (i in 1:n_iterations) {
-    cat("Iteration", i, "of", n_iterations, "\n")
-    
+  for (i in 1:n_iterations) {    
     iteration_results <- run_real_data_iteration(dataset_name, target_feature, 
                                                 iteration_seed = i)
     study_results[[i]] <- iteration_results
   }
   
-  # Combine results into data frame for analysis
   all_metrics <- do.call(rbind, lapply(study_results, function(iter) {
     do.call(rbind, lapply(iter, function(model_result) {
       data.frame(
@@ -159,10 +133,8 @@ run_real_data_study <- function(dataset_name, target_feature, n_iterations = 10)
   ))
 }
 
-#' Create performance plots for real data results
 create_real_data_performance_plots <- function(all_results) {
   
-  # Combine all metrics
   combined_metrics <- do.call(rbind, lapply(all_results, function(x) x$metrics))
   combined_metrics <- combined_metrics[!is.na(combined_metrics$RMSE), ]
   
@@ -171,10 +143,8 @@ create_real_data_performance_plots <- function(all_results) {
     return(NULL)
   }
   
-  # Create study labels combining dataset and target
   combined_metrics$Study <- paste(combined_metrics$Dataset, combined_metrics$Target, sep = "_")
   
-  # Coverage plots for multiple levels
   coverage_90_plot <- ggplot(combined_metrics, aes(x = Model, y = Coverage_90, fill = Model)) +
     geom_boxplot() +
     geom_hline(yintercept = 0.9, linetype = "dashed", color = "red") +
@@ -205,7 +175,6 @@ create_real_data_performance_plots <- function(all_results) {
     theme_minimal() +
     theme(axis.text.x = element_text(angle = 45, hjust = 1))
   
-  # RMSE plot  
   rmse_plot <- ggplot(combined_metrics, aes(x = Model, y = RMSE, fill = Model)) +
     geom_boxplot() +
     facet_wrap(~ Study, scales = "free") +
@@ -213,7 +182,6 @@ create_real_data_performance_plots <- function(all_results) {
     theme_minimal() +
     theme(axis.text.x = element_text(angle = 45, hjust = 1))
   
-  # Interval width plots for multiple levels
   width_90_plot <- ggplot(combined_metrics, aes(x = Model, y = Width_90, fill = Model)) +
     geom_boxplot() +
     facet_wrap(~ Study, scales = "free") +
@@ -234,7 +202,6 @@ create_real_data_performance_plots <- function(all_results) {
     theme_minimal() +
     theme(axis.text.x = element_text(angle = 45, hjust = 1))
   
-  # Time plot
   time_plot <- ggplot(combined_metrics, aes(x = Model, y = Time_sec, fill = Model)) +
     geom_boxplot() +
     facet_wrap(~ Study, scales = "free") +
@@ -253,7 +220,6 @@ create_real_data_performance_plots <- function(all_results) {
   ))
 }
 
-#' Create prediction scatter plots for real data
 create_real_data_prediction_plots <- function(all_results, study_name) {
   
   study_results <- all_results[[study_name]]
@@ -296,13 +262,9 @@ create_real_data_prediction_plots <- function(all_results, study_name) {
   return(plots)
 }
 
-#' Main real data study function
 main_real_data_study <- function() {
-  cat("Starting real data model comparison study...\n\n")
-  
   all_results <- list()
   
-  # Define datasets and targets to test
   datasets_to_test <- list(
     "forestfires" = c("area"),
     "bikesharing" = c("temp", "hum", "windspeed"),
@@ -314,12 +276,7 @@ main_real_data_study <- function() {
   )
   
   for (dataset_name in names(datasets_to_test)) {
-    available_targets <- tryCatch({
-      get_target_features(dataset_name)
-    }, error = function(e) {
-      cat("Skipping", dataset_name, "- not available\n")
-      return(NULL)
-    })
+    available_targets <- get_target_features(dataset_name)
     
     if (is.null(available_targets)) next
     
@@ -328,22 +285,10 @@ main_real_data_study <- function() {
     for (target_feature in targets_to_test) {
       study_name <- paste(dataset_name, target_feature, sep = "_")
       
-      tryCatch({
-        all_results[[study_name]] <- run_real_data_study(dataset_name, target_feature, n_iterations)
-      }, error = function(e) {
-        cat("Error in study", study_name, ":", e$message, "\n")
-      })
+      all_results[[study_name]] <- run_real_data_study(dataset_name, target_feature, n_iterations)
     }
   }
-  
-  if (length(all_results) == 0) {
-    cat("No successful studies completed.\n")
-    return(NULL)
-  }
-  
-  cat("\nGenerating plots...\n")
-  
-  # Performance plots
+    
   perf_plots <- create_real_data_performance_plots(all_results)
   
   if (!is.null(perf_plots)) {
@@ -355,17 +300,6 @@ main_real_data_study <- function() {
     ggsave("real_data_width_comparison.png", perf_plots$width_comparison, width = 12, height = 8)
     ggsave("real_data_time.png", perf_plots$time, width = 12, height = 8)
   }
-  
-  # # Prediction plots for each study
-  # for (study_name in names(all_results)) {
-  #   pred_plots <- create_real_data_prediction_plots(all_results, study_name)
-    
-  #   if (length(pred_plots) > 0) {
-  #     combined_plot <- do.call(grid.arrange, c(pred_plots, ncol = 2))
-  #     ggsave(paste0("real_data_predictions_", study_name, ".png"), 
-  #            combined_plot, width = 12, height = 8)
-  #   }
-  # }
   
   cat("\n=== REAL DATA SUMMARY STATISTICS ===\n")
   combined_metrics <- do.call(rbind, lapply(all_results, function(x) x$metrics))
@@ -386,7 +320,6 @@ main_real_data_study <- function() {
         .groups = 'drop'
       )
     
-    # Create formatted summary table
     formatted_summary <- combined_metrics %>%
       group_by(Model, Dataset, Target) %>%
       summarise(
@@ -414,20 +347,5 @@ main_real_data_study <- function() {
   }
   
   saveRDS(all_results, "real_data_results.rds")
-  
-  cat("\nReal data study completed. Results saved to files.\n")
   return(all_results)
-}
-
-# Interactive usage
-if (interactive()) {
-  cat("Starting real data study...\n")
-  cat("This may take some time depending on n_iterations =", n_iterations, "\n")
-  cat("Make sure you have downloaded the required datasets.\n\n")
-  
-  # You can also run individual studies:
-  # single_result <- run_real_data_study("wine_quality", "alcohol", 5)
-  all_results <- main_real_data_study()
-} else {
-  cat("Source this file and run main_real_data_study() to start the study.\n")
 }

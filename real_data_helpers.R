@@ -1,30 +1,21 @@
-# real_data_helpers.R
-# Real dataset loading and preprocessing functions for sbart analysis
-
 library(datasets)
 if (!require(moments, quietly = TRUE)) {
   install.packages("moments")
   library(moments)
 }
 
-#' Load and preprocess real datasets for sbart analysis
-#' 
-#' @param dataset_name Name of dataset 
-#' @param target_feature Which feature to use as response variable
-#' @param n_train Number of training observations
-#' @param n_test Number of test observations  
-#' @param normalize_to_01 Whether to normalize response to [0,1]
-#' @param seed Random seed for reproducibility
+# Load and preprocess real datasets
+# @param dataset_name Name of dataset 
+# @param target_feature Which feature to use as response variable
+# @param n_train Number of training observations
+# @param n_test Number of test observations  
+# @param seed Random seed for reproducibility
 load_real_dataset <- function(dataset_name, target_feature = NULL, 
-                             n_train = 200, n_test = 500, 
-                             normalize_to_01 = TRUE, seed = 123) {
+                             n_train = 200, n_test = 500, seed = 123) {
   
   set.seed(seed)
   
   if (dataset_name == "forestfires") {
-    if (!file.exists("forestfires.csv")) { 
-      stop("Please download forestfires.csv from UCI repository")
-    }
     data <- read.csv("forestfires.csv")
     
     if (is.null(target_feature)) target_feature <- "area"
@@ -33,16 +24,11 @@ load_real_dataset <- function(dataset_name, target_feature = NULL,
 
   } 
   else if (dataset_name == "bikesharing") {
-    if (!file.exists("hour.csv")) {
-      stop("Please download hour.csv from UCI repository")
-    }
     data <- read.csv("hour.csv")
 
     if (is.null(target_feature)) target_feature <- "temp"
     y_raw <- data[[target_feature]]
     
-    # Remove target and other normalized weather variables from features
-    # Also remove non-predictive columns
     exclude_cols <- c(target_feature, "instant", "dteday", "yr", "casual", "registered", "cnt")
     if (target_feature != "temp") exclude_cols <- c(exclude_cols, "temp")
     if (target_feature != "hum") exclude_cols <- c(exclude_cols, "hum") 
@@ -52,9 +38,6 @@ load_real_dataset <- function(dataset_name, target_feature = NULL,
   }
 
   else if (dataset_name == "concrete") {
-    if (!file.exists("Concrete_Data.csv")) {
-      stop("Please download Concrete_Data.csv from UCI repository")
-    }
     data <- read.csv("Concrete_Data.csv")
 
     names(data) <- c("cement", "slag", "flyash", "water", "superplast", 
@@ -66,12 +49,8 @@ load_real_dataset <- function(dataset_name, target_feature = NULL,
   }
 
   else if (dataset_name == "studentperformance") {
-    if (!file.exists("student-mat.csv")) {
-      stop("Please download student-mat.csv from UCI Student Performance dataset")
-    }
     data <- read.csv("student-mat.csv", sep = ";")
     
-    # Create normalized targets
     data$G3_norm <- data$G3 / 20  # Normalize to [0,1]
     data$absences_norm <- data$absences / max(data$absences)
     data$failures_norm <- data$failures / max(data$failures)
@@ -79,7 +58,6 @@ load_real_dataset <- function(dataset_name, target_feature = NULL,
     if (is.null(target_feature)) target_feature <- "G3_norm"
     y_raw <- data[[target_feature]]
     
-    # Remove grade-related columns to avoid leakage
     exclude_cols <- c(target_feature, "G1", "G2", "G3", "G3_norm", 
                       "absences_norm", "failures_norm")
     X_raw <- data[, !names(data) %in% exclude_cols]
@@ -87,34 +65,25 @@ load_real_dataset <- function(dataset_name, target_feature = NULL,
   }
 
   else if (dataset_name == "glass") {
-      if (!file.exists("glass.data")) {
-        stop("Please download glass.data from UCI Glass Identification dataset")
-      }
       data <- read.csv("glass.data", header = FALSE)
       names(data) <- c("Id", "RI", "Na", "Mg", "Al", "Si", "K", "Ca", "Ba", "Fe", "Type")
       
       if (is.null(target_feature)) target_feature <- "Na"
       
-      # Normalize oxide percentages to [0,1]
       oxide_cols <- c("Na", "Mg", "Al", "Si", "K", "Ca", "Ba", "Fe")
       for (col in oxide_cols) {
-        data[[col]] <- data[[col]] / 100  # Convert percentage to proportion
+        data[[col]] <- data[[col]] / 100
       }
       
       y_raw <- data[[target_feature]]
-      exclude_cols <- c("Id", target_feature, "Type") # Remove ID and class
+      exclude_cols <- c("Id", target_feature, "Type")
       X_raw <- data[, !names(data) %in% exclude_cols]
 
   }
 
   else if (dataset_name == "parkinsons") {
-    if (!file.exists("parkinsons_updrs.data")) {
-      stop("Please download parkinsons_updrs.data from UCI Parkinsons Telemonitoring dataset")
-    }
     data <- read.csv("parkinsons_updrs.data")
     
-    # NHR and HNR are already ratios, DFA is bounded
-    # Normalize other potential targets
     data$motor_norm <- data$motor_UPDRS / 100
     data$total_norm <- data$total_UPDRS / 200
     
@@ -128,9 +97,6 @@ load_real_dataset <- function(dataset_name, target_feature = NULL,
   }
 
   else if (dataset_name == "yeast") {
-    if (!file.exists("yeast.data")) {
-      stop("Please download yeast.data from UCI Yeast dataset")
-    }
     data <- read.table("yeast.data")
     names(data) <- c("seq_name", "mcg", "gvh", "alm", "mit", "erl", 
                      "pox", "vac", "nuc", "class")
@@ -148,27 +114,14 @@ load_real_dataset <- function(dataset_name, target_feature = NULL,
          ". Available: ", paste(get_available_real_datasets(), collapse = ", "))
   }
   
-  # Remove any remaining non-numeric columns from X
   X_raw <- X_raw[, sapply(X_raw, is.numeric), drop = FALSE]
   
-  # Handle missing values
   if (any(is.na(y_raw))) {
     complete_idx <- !is.na(y_raw) & complete.cases(X_raw)
     y_raw <- y_raw[complete_idx]
     X_raw <- X_raw[complete_idx, , drop = FALSE]
   }
   
-  # Normalize response to [0,1] if requested
-  if (normalize_to_01) {
-    y_range <- range(y_raw, na.rm = TRUE)
-    y_normalized <- (y_raw - y_range[1]) / (y_range[2] - y_range[1])
-    # Avoid exact 0 and 1 for numerical stability
-    y_normalized <- y_normalized * 0.998 + 0.001
-  } else {
-    y_normalized <- y_raw
-  }
-  
-  # Standardize X variables
   X_scaled <- scale(X_raw)
   
   # Train/test split
@@ -185,11 +138,11 @@ load_real_dataset <- function(dataset_name, target_feature = NULL,
     y_test = y_normalized[test_idx],
     X_train = X_scaled[train_idx, , drop = FALSE],
     X_test = X_scaled[test_idx, , drop = FALSE],
-    f_true_train = NULL,  # No true function for real data
+    f_true_train = NULL,
     f_true_test = NULL,
-    z_train = y_normalized[train_idx],  # Use normalized y as z
+    z_train = y_normalized[train_idx],
     z_test = y_normalized[test_idx],
-    g_true = NULL,  # No true transformation
+    g_true = NULL,
     y_unique = sort(unique(y_normalized)),
     dataset_info = list(
       name = dataset_name,
@@ -200,12 +153,11 @@ load_real_dataset <- function(dataset_name, target_feature = NULL,
   ))
 }
 
-#' Get available real datasets
 get_available_real_datasets <- function() {
-  c("forestfires", "bikesharing", "concrete", "studentperformance", "glass", "parkinsons", "yeast")
+  c("forestfires", "bikesharing", "concrete", "studentperformance", "glass", 
+  "parkinsons", "yeast")
 }
 
-#' Get available target features for each dataset
 get_target_features <- function(dataset_name) {
   switch(dataset_name,
     "forestfires" = c("area"),
@@ -219,40 +171,18 @@ get_target_features <- function(dataset_name) {
   )
 }
 
-#' Demo function for real data diagnostics
 demo_real_data_diagnostics <- function(dataset_name, target_feature = NULL, 
                                       n_train = 200, n_test = 500) {
-  
-  cat("Loading real dataset:", dataset_name, "\n")
-  if (!is.null(target_feature)) {
-    cat("Target feature:", target_feature, "\n")
-  }
   
   real_data <- load_real_dataset(dataset_name, target_feature, 
                                 n_train, n_test, seed = 123)
   
-  cat("Dataset info:\n")
-  cat("  N features:", real_data$dataset_info$n_features, "\n")
-  cat("  N train:", length(real_data$y_train), "\n")
-  cat("  N test:", length(real_data$y_test), "\n")
-  cat("  Response range: [", round(min(real_data$y_train), 3), ", ", 
-      round(max(real_data$y_train), 3), "]\n", sep = "")
-  
-  # Basic distributional diagnostics
-  cat("  Response distribution summary:\n")
-  cat("    Mean:", round(mean(real_data$y_train), 3), "\n")
-  cat("    Median:", round(median(real_data$y_train), 3), "\n") 
-  cat("    Skewness:", round(moments::skewness(real_data$y_train), 3), "\n")
-  cat("    Min/Max:", round(min(real_data$y_train), 3), "/", round(max(real_data$y_train), 3), "\n")
-  
-  cat("Fitting SBART model...\n")
   sbart_fit <- sbart(y = real_data$y_train, 
                      X = real_data$X_train, 
                      X_test = real_data$X_test,
                      ntree = 200, nsave = 1000, nburn = 1000, 
                      verbose = FALSE)
   
-  cat("Creating diagnostic plots for real data...\n")
   metrics <- create_all_sbart_diagnostics(sbart_fit, 
                                          real_data$y_test, 
                                          true_g_values = NULL)
@@ -265,10 +195,8 @@ demo_real_data_diagnostics <- function(dataset_name, target_feature = NULL,
   ))
 }
 
-#' Get basic distributional summary of target feature
 summarize_target_distribution <- function(dataset_name, target_feature = NULL) {
   
-  # Load small sample to check distribution
   real_data <- load_real_dataset(dataset_name, target_feature, 
                                 n_train = 100, n_test = 100, seed = 42)
   
@@ -289,12 +217,4 @@ summarize_target_distribution <- function(dataset_name, target_feature = NULL) {
   )
   
   return(summary_stats)
-}
-
-# Example usage
-if (interactive()) {
-  cat("Available real datasets:\n")
-  for (dataset in get_available_real_datasets()) {
-    cat("  ", dataset, ": ", paste(get_target_features(dataset), collapse = ", "), "\n")
-  }
 }

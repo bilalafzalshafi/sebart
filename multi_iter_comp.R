@@ -1,4 +1,4 @@
-# Multi-iteration comparison script for semiparametric regression models
+# Multi-iteration comparison script
 
 library(SeBR)
 library(dbarts)
@@ -22,7 +22,6 @@ generate_data <- function(scenario_name, n_train, n_test, p) {
                      scenario = scenario_name)
 }
 
-# Function to fit all models
 fit_all_models <- function(data) {
   results <- list()
   timing <- list()
@@ -32,10 +31,7 @@ fit_all_models <- function(data) {
   X_test <- data$X_test
   y_test <- data$y_test
   
-  # 1. Regular BART (no transformation)
-  cat("Fitting BART...")
   timing$bart <- system.time({
-    tryCatch({
       fit_bart <- dbarts::bart(x.train = X_train, y.train = y_train, x.test = X_test, 
                        ntree = 200, ndpost = 1000, nskip = 1000, verbose = FALSE)
       results$bart <- list(
@@ -43,51 +39,25 @@ fit_all_models <- function(data) {
         post_ypred = fit_bart$yhat.test,
         model = 'bart'
       )
-    }, error = function(e) {
-      cat("BART failed:", e$message, "\n")
-      results$bart <<- NULL
-    })
   })
   
-  # 2. Semiparametric BART (sbart)
-  cat("Fitting SBART...")
   timing$sbart <- system.time({
-    tryCatch({
-      fit_sbart <- sbart(y = y_train, X = X_train, X_test = X_test, 
-                         ntree = 200, nsave = 1000, nburn = 1000, verbose = FALSE)
-      results$sbart <- fit_sbart
-    }, error = function(e) {
-      cat("SBART failed:", e$message, "\n")
-      results$sbart <<- NULL
-    })
+    fit_sbart <- sbart(y = y_train, X = X_train, X_test = X_test, 
+                        ntree = 200, nsave = 1000, nburn = 1000, verbose = FALSE)
+    results$sbart <- fit_sbart
   })
   
-  # 3. Semiparametric Bayesian Linear Model (sblm)
-  cat("Fitting SBLM...")
   timing$sblm <- system.time({
-    tryCatch({
-      fit_sblm <- SeBR::sblm(y = y_train, X = X_train, X_test = X_test)
-      results$sblm <- fit_sblm
-    }, error = function(e) {
-      cat("SBLM failed:", e$message, "\n")
-      results$sblm <<- NULL
-    })
+    fit_sblm <- SeBR::sblm(y = y_train, X = X_train, X_test = X_test)
+    results$sblm <- fit_sblm
   })
   
-  # 4. Bayesian BART with Box-Cox (bbart_bc)
-  cat("Fitting BBART_BC...")
   timing$bbart_bc <- system.time({
-    tryCatch({
       fit_bbart_bc <- bbart_bc(y = y_train, X = X_train, X_test = X_test,
                                ntree = 200, nsave = 1000, nburn = 1000, verbose = FALSE)
       results$bbart_bc <- fit_bbart_bc
-    }, error = function(e) {
-      cat("BBART_BC failed:", e$message, "\n")
-      results$bbart_bc <<- NULL
-    })
   })
   
-  cat("Models fitted.\n")
   return(list(results = results, timing = timing))
 }
 
@@ -133,15 +103,10 @@ calculate_metrics <- function(results, y_test, alpha = 0.1) {
 }
 
 run_simulation_study <- function(scenario_name, n_iterations) {
-  cat("Running simulation study for scenario:", scenario_name, "\n")
-  cat("Number of iterations:", n_iterations, "\n\n")
-  
   all_metrics <- data.frame()
   all_predictions <- list()
   
   for (i in 1:n_iterations) {
-    if (i %% 10 == 0) cat("Iteration", i, "of", n_iterations, "\n")
-    
     data <- generate_data(scenario_name, n_train, n_test, p)
     
     model_fits <- fit_all_models(data)
@@ -174,7 +139,6 @@ create_performance_plots <- function(all_results) {
   
   combined_metrics <- combined_metrics[!is.na(combined_metrics$RMSE), ]
   
-  # Coverage plot
   p_coverage <- ggplot(combined_metrics, aes(y = Model, 
                                             x = Coverage)) +
     geom_boxplot(fill = "lightgray", color = "black", width = 0.4, 
@@ -203,7 +167,6 @@ create_performance_plots <- function(all_results) {
       panel.spacing.x = unit(0.5, "cm")
     )
   
-  # Interval width plot
   p_width <- ggplot(combined_metrics, aes(y = Model, 
                                         x = Mean_Width)) +
     geom_boxplot(fill = "lightgray", color = "black", width = 0.4, 
@@ -228,7 +191,6 @@ create_performance_plots <- function(all_results) {
       panel.spacing.x = unit(0.5, "cm")
     )
   
-  # RMSE plot
   p_rmse <- ggplot(combined_metrics, aes(y = Model, 
                                         x = RMSE)) +
     geom_boxplot(fill = "lightgray", color = "black", width = 0.4, 
@@ -253,7 +215,6 @@ create_performance_plots <- function(all_results) {
       panel.spacing.x = unit(0.5, "cm")
     )
   
-  # Timing plot
   p_time <- ggplot(combined_metrics, aes(y = Model, 
                                         x = Time_sec)) +
     geom_boxplot(fill = "lightgray", color = "black", width = 0.4, 
@@ -311,7 +272,6 @@ create_prediction_plots <- function(all_results, scenario_name) {
 }
 
 main_simulation <- function() {
-  cat("Starting model comparison study...\n\n")
   
   all_results <- list()
   
@@ -320,9 +280,7 @@ main_simulation <- function() {
   for (scenario in scenarios_to_test) {
     all_results[[scenario]] <- run_simulation_study(scenario, n_iterations)
   }
-  
-  cat("\nGenerating plots...\n")
-  
+    
   perf_plots <- create_performance_plots(all_results)
   
   ggsave("coverage_comparison.png", perf_plots$coverage, width = 12, height = 8)
@@ -359,14 +317,5 @@ main_simulation <- function() {
   write.csv(combined_metrics, "detailed_metrics.csv", row.names = FALSE)
   write.csv(summary_stats, "summary_statistics.csv", row.names = FALSE)
   
-  cat("\nSimulation completed. Results saved to files.\n")
   return(all_results)
-}
-
-if (interactive()) {
-  cat("Starting simulation study...\n")
-  cat("This may take some time depending on n_iterations =", n_iterations, "\n")
-  results <- main_simulation()
-} else {
-  cat("Source this file and run main_simulation() to start the study.\n")
 }
