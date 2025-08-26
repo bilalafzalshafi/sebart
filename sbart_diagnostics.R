@@ -1,25 +1,25 @@
-# SBART diagnostic functions
+# sebart diagnostic functions
 
 library(SeBR)
-source("sbart.R")
+source("sebart.R")
 source("simulation_helpers.R")
 
-#' Point estimate plot for SBART
+#' Point estimate plot for sebart
 #' 
-#' @param sbart_fit SBART fit object or fitted values
+#' @param sebart_fit sebart fit object or fitted values
 #' @param y_test True test values
 #' @param main_title Plot title
 #' @return RMSE value
-plot_sbart_point_estimates <- function(sbart_fit, y_test, main_title = "Point estimates: testing data") {
+plot_sebart_point_estimates <- function(sebart_fit, y_test, main_title = "Point estimates: testing data") {
   
-  if (is.list(sbart_fit) && "fitted.values" %in% names(sbart_fit)) {
-    y_hat <- sbart_fit$fitted.values
-  } else if (is.list(sbart_fit) && "post_ypred" %in% names(sbart_fit)) {
-    y_hat <- apply(sbart_fit$post_ypred, 2, mean)
-  } else if (is.numeric(sbart_fit)) {
-    y_hat <- sbart_fit
+  if (is.list(sebart_fit) && "fitted.values" %in% names(sebart_fit)) {
+    y_hat <- sebart_fit$fitted.values
+  } else if (is.list(sebart_fit) && "post_ypred" %in% names(sebart_fit)) {
+    y_hat <- apply(sebart_fit$post_ypred, 2, mean)
+  } else if (is.numeric(sebart_fit)) {
+    y_hat <- sebart_fit
   } else {
-    stop("sbart_fit must contain fitted.values, post_ypred, or be numeric vector")
+    stop("sebart_fit must contain fitted.values, post_ypred, or be numeric vector")
   }
   
   rmse_val <- sqrt(mean((y_hat - y_test)^2))
@@ -45,7 +45,7 @@ plot_sbart_point_estimates <- function(sbart_fit, y_test, main_title = "Point es
   return(rmse_val)
 }
 
-#' Prediction interval plot for SBART
+#' Prediction interval plot for sebart
 #' 
 #' @param post_ypred Posterior predictive samples (nsave x n_test matrix)
 #' @param y_test True test values
@@ -84,19 +84,19 @@ plot_pptest <- function(post_ypred, y_test, alpha_level = 0.10) {
   return(coverage)
 }
 
-#' Posterior predictive ECDF plot for SBART
+#' Posterior predictive ECDF plot for sebart
 #' 
-#' @param sbart_fit Output from sbart() function
+#' @param sebart_fit Output from sebart() function
 #' @param y_test True test data values  
 #' @param main_title Title for the plot
 #' @param n_samples Number of posterior predictive samples to plot (for speed)
 #' @return Creates a plot showing posterior predictive adequacy
-plot_sbart_ppd <- function(sbart_fit, y_test, main_title = "Posterior predictive ECDF: testing data", n_samples = 100) {
+plot_sebart_ppd <- function(sebart_fit, y_test, main_title = "Posterior predictive ECDF: testing data", n_samples = 100) {
   
-  post_ypred <- sbart_fit$post_ypred
+  post_ypred <- sebart_fit$post_ypred
   
   if (is.null(post_ypred)) {
-    stop("sbart_fit must contain post_ypred component")
+    stop("sebart_fit must contain post_ypred component")
   }
   
   n_mcmc_samples <- nrow(post_ypred)
@@ -131,27 +131,27 @@ plot_sbart_ppd <- function(sbart_fit, y_test, main_title = "Posterior predictive
   grid(col = "lightgray", lty = "dotted")
 }
 
-#' Posterior transformation plot for SBART
+#' Posterior transformation plot for sebart
 #' 
-#' @param sbart_fit Output from sbart() function
+#' @param sebart_fit Output from sebart() function
 #' @param y_values Values at which transformation is evaluated (default: unique y values)
 #' @param true_g_values True transformation values (optional, for comparison)
 #' @param main_title Title for the plot
 #' @param n_draws Number of posterior draws to show (for visual clarity)
 #' @param standardize If TRUE, standardize both posterior and true transformations for comparison
 #' @return Creates a plot showing posterior draws of g
-plot_sbart_transformation <- function(sbart_fit, y_values = NULL, true_g_values = NULL, 
+plot_sebart_transformation <- function(sebart_fit, y_values = NULL, true_g_values = NULL, 
                                     main_title = "Posterior draws of transformation (standardized)", 
                                     n_draws = 50, standardize = TRUE) {
   
-  post_g <- sbart_fit$post_g
+  post_g <- sebart_fit$post_g
   
   if (is.null(post_g)) {
-    stop("sbart_fit must contain post_g component")
+    stop("sebart_fit must contain post_g component")
   }
   
   if (is.null(y_values)) {
-    y_values <- sort(unique(sbart_fit$y))
+    y_values <- sort(unique(sebart_fit$y))
   }
   
   if (ncol(post_g) != length(y_values)) {
@@ -160,6 +160,8 @@ plot_sbart_transformation <- function(sbart_fit, y_values = NULL, true_g_values 
   }
   
   g_mean <- colMeans(post_g)
+
+  cat("Range of g_mean:", round(range(g_mean), 4), "\n")
   
   if (standardize && !is.null(true_g_values)) {
     # Ensure true_g_values has same length as g_mean
@@ -243,26 +245,26 @@ plot_sbart_transformation <- function(sbart_fit, y_values = NULL, true_g_values 
   }
 }
 
-# #' Plot raw (non-standardized) transformation comparison for SBART
+# #' Plot raw (non-standardized) transformation comparison for sebart
 # #' 
-# #' @param sbart_fit Output from sbart() function
+# #' @param sebart_fit Output from sebart() function
 # #' @param y_values Values at which transformation is evaluated (default: unique y values)
 # #' @param true_g_values True transformation values (optional, for comparison)
 # #' @param main_title Title for the plot
 # #' @param n_draws Number of posterior draws to show (for visual clarity)
 # #' @return Creates a plot showing posterior draws of g without standardization
-# plot_sbart_transformation_raw <- function(sbart_fit, y_values = NULL, true_g_values = NULL, 
+# plot_sebart_transformation_raw <- function(sebart_fit, y_values = NULL, true_g_values = NULL, 
 #                                         main_title = "Posterior draws of transformation (raw scale)", 
 #                                         n_draws = 50) {
   
-#   post_g <- sbart_fit$post_g
+#   post_g <- sebart_fit$post_g
   
 #   if (is.null(post_g)) {
-#     stop("sbart_fit must contain post_g component")
+#     stop("sebart_fit must contain post_g component")
 #   }
   
 #   if (is.null(y_values)) {
-#     y_values <- sort(unique(sbart_fit$y))
+#     y_values <- sort(unique(sebart_fit$y))
 #   }
   
 #   if (ncol(post_g) != length(y_values)) {
@@ -351,31 +353,31 @@ plot_sbart_transformation <- function(sbart_fit, y_values = NULL, true_g_values 
 
 #' Create all plots
 #' 
-#' @param sbart_fit Output from sbart() function
+#' @param sebart_fit Output from sebart() function
 #' @param y_test True test data values
 #' @param true_g_values True transformation values (optional)
 #' @param alpha_level Alpha level for prediction intervals
 #' @param layout Plot layout (default c(2,2) for 4 plots)
-create_all_sbart_diagnostics <- function(sbart_fit, y_test, true_g_values = NULL, 
+create_all_sebart_diagnostics <- function(sebart_fit, y_test, true_g_values = NULL, 
                                        alpha_level = 0.10, layout = c(2, 2)) {
   
   par(mfrow = layout, mar = c(4, 4, 3, 2))
   
   # Plot 1: Point estimates
-  rmse <- plot_sbart_point_estimates(sbart_fit, y_test)
+  rmse <- plot_sebart_point_estimates(sebart_fit, y_test)
   
   # Plot 2: Prediction intervals
-  coverage <- plot_pptest(sbart_fit$post_ypred, y_test, alpha_level)
+  coverage <- plot_pptest(sebart_fit$post_ypred, y_test, alpha_level)
   
   # Plot 3: Posterior predictive ECDF
-  plot_sbart_ppd(sbart_fit, y_test)
+  plot_sebart_ppd(sebart_fit, y_test)
   
   # Plot 4: Transformation
-  y_values <- sort(unique(sbart_fit$y))
-  plot_sbart_transformation(sbart_fit, y_values, true_g_values)
+  y_values <- sort(unique(sebart_fit$y))
+  plot_sebart_transformation(sebart_fit, y_values, true_g_values)
 
   # # Plot 5: Transformation (raw scale)
-  # plot_sbart_transformation_raw(sbart_fit, y_values, true_g_values)
+  # plot_sebart_transformation_raw(sebart_fit, y_values, true_g_values)
   
   par(mfrow = c(1, 1))
   
@@ -385,19 +387,19 @@ create_all_sbart_diagnostics <- function(sbart_fit, y_test, true_g_values = NULL
   return(list(rmse = rmse, coverage = coverage))
 }
 
-#' Demo function with SBART diagnostic workflow
+#' Demo function with sebart diagnostic workflow
 #' 
 #' @param scenario Transformation scenario to test
 #' @param n_train Number of training observations
 #' @param n_test Number of test observations
 #' @param p Number of predictors
-demo_all_sbart_diagnostics <- function(scenario = "box_cox", n_train = 200, n_test = 500, p = 10) {
+demo_all_sebart_diagnostics <- function(scenario = "box_cox", n_train = 200, n_test = 500, p = 10) {
   
   cat("Generating data for scenario:", scenario, "\n")
   
   set.seed(123)
   
-  sim_data <- simulate_sbart_data(n_train = n_train, n_test = n_test, p = p, 
+  sim_data <- simulate_sebart_data(n_train = n_train, n_test = n_test, p = p, 
                                 scenario = scenario, seed = 123)
   
   if (!scenario %in% get_available_scenarios()) {
@@ -413,9 +415,9 @@ demo_all_sbart_diagnostics <- function(scenario = "box_cox", n_train = 200, n_te
   z_train <- sim_data$z_train
   z_test <- sim_data$z_test
   
-  cat("Fitting SBART model...\n")
+  cat("Fitting sebart model...\n")
   
-  sbart_fit <- sbart(y = y_train, X = X_train, X_test = X_test, 
+  sebart_fit <- sebart(y = y_train, X = X_train, X_test = X_test, 
                      ntree = 200, nsave = 1000, nburn = 1000, verbose = FALSE)
   
   cat("Creating all diagnostic plots...\n")
@@ -423,10 +425,10 @@ demo_all_sbart_diagnostics <- function(scenario = "box_cox", n_train = 200, n_te
   true_g_values <- sim_data$g_true
   y_unique <- sim_data$y_unique
   
-  metrics <- create_all_sbart_diagnostics(sbart_fit, y_test, true_g_values)
+  metrics <- create_all_sebart_diagnostics(sebart_fit, y_test, true_g_values)
   
   return(list(
-    sbart_fit = sbart_fit,
+    sebart_fit = sebart_fit,
     y_test = y_test,
     metrics = metrics,
     true_g_values = true_g_values
@@ -435,8 +437,5 @@ demo_all_sbart_diagnostics <- function(scenario = "box_cox", n_train = 200, n_te
 
 # Example usage
 if (interactive()) {
-  cat("Example usage:\n")
-
-  cat("# Demo with all diagnostics:\n")
-  cat("results <- demo_all_sbart_diagnostics('box_cox')\n")
+  results <- demo_all_sebart_diagnostics('sigmoid')
 }

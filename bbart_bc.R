@@ -1,6 +1,6 @@
-#' Bayesian BART with a Box-Cox transformation
+#' BART with a Box-Cox transformation
 #'
-#' MCMC sampling for Bayesian BART regression with a
+#' MCMC sampling for BART regression with a
 #' (known or unknown) Box-Cox transformation.
 #'
 #' @param y \code{n x 1} response vector
@@ -37,36 +37,6 @@
 #' For computational efficiency, the BART hyperparameters use standard
 #' defaults and the algorithm alternates between updating the Box-Cox
 #' parameter and the BART model.
-#'
-#' @note Box-Cox transformations may be useful in some cases, but
-#' in general we recommend the nonparametric transformation (with
-#' Monte Carlo sampling) in \code{\link{sbart}}.
-#'
-#' @examples
-#' \donttest{
-#' # Simulate some data:
-#' n <- 200
-#' p <- 5
-#' X <- matrix(rnorm(n*p), n, p)
-#' f_true <- sin(2*X[,1]) + X[,2]^2 - X[,3]*X[,4]
-#' y <- g_inv_bc(f_true + rnorm(n, sd=0.1), lambda = 0.5) # square-root transformation
-#' 
-#' # Test data
-#' X_test <- matrix(rnorm(50*p), 50, p)
-#' 
-#' # Fit Bayesian BART with Box-Cox transformation:
-#' fit <- bbart_bc(y = y, X = X, X_test = X_test)
-#' names(fit) # what is returned
-#' round(quantile(fit$post_lambda), 3) # summary of unknown Box-Cox parameter
-#' 
-#' # Plot the model predictions (point and interval estimates):
-#' pi_y <- t(apply(fit$post_ypred, 2, quantile, c(0.05, .95))) # 90% PI
-#' plot(1:nrow(pi_y), pi_y[,1], type='n', ylim=range(pi_y),
-#'      xlab='Test observation', ylab='y', main='Prediction intervals')
-#' segments(1:nrow(pi_y), pi_y[,1], 1:nrow(pi_y), pi_y[,2])
-#' points(1:nrow(pi_y), fitted(fit), pch=16)
-#' }
-#'
 #' @export
 bbart_bc = function(y, X, X_test = X,
                     ntree = 200,

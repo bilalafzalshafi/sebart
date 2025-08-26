@@ -1,4 +1,4 @@
-# End-to-end demonstration of Bayesian BART with Box-Cox transformation (bbart_bc)
+# End-to-end demonstration of BART with Box-Cox transformation (bbart_bc)
 
 # Load required libraries
 library(dbarts)

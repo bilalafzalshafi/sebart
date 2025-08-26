@@ -2,8 +2,8 @@
 
 library(SeBR)
 library(dbarts)
-source("sbart.R")
-source("sbart_rf.R")
+source("sebart.R")
+source("sebart_rf.R")
 source("bbart_bc.R")
 source("simulation_helpers.R")
 
@@ -12,7 +12,7 @@ set.seed(123)
 scenario_name <- "sigmoid"  # Change this to test different scenarios
 cat("Testing scenario:", scenario_name, "\n")
 
-sim_data <- simulate_sbart_data(n_train = 200, n_test = 1000, p = 10, 
+sim_data <- simulate_sebart_data(n_train = 200, n_test = 1000, p = 10, 
                                scenario = scenario_name, seed = 123)
 y <- sim_data$y_train
 y_test <- sim_data$y_test
@@ -42,16 +42,16 @@ timing$bart = system.time({
   })
 })
 
-# 2. Semiparametric BART (sbart)
-cat("Fitting sbart...\n")
-timing$sbart = system.time({
+# 2. Semiparametric BART (sebart)
+cat("Fitting sebart...\n")
+timing$sebart = system.time({
   tryCatch({
-    fit_sbart = sbart(y = y, X = X, X_test = X_test, 
+    fit_sebart = sebart(y = y, X = X, X_test = X_test, 
                       ntree = 200, nsave = 1000, nburn = 1000, verbose = FALSE)
-    results$sbart = fit_sbart
+    results$sebart = fit_sebart
   }, error = function(e) {
-    cat("SBART failed:", e$message, "\n")
-    results$sbart <<- NULL
+    cat("sebart failed:", e$message, "\n")
+    results$sebart <<- NULL
   })
 })
 
@@ -80,17 +80,17 @@ timing$bbart_bc = system.time({
   })
 })
 
-# 5. Semiparametric Bayesian BART with Random Forest initialization (sbart_rf)
-cat("Fitting sbart_rf...\n")
-timing$sbart_rf = system.time({
+# 5. Semiparametric Bayesian BART with Random Forest initialization (sebart_rf)
+cat("Fitting sebart_rf...\n")
+timing$sebart_rf = system.time({
   tryCatch({
-    fit_sbart_rf = sbart(y = y, X = X, X_test = X_test,
+    fit_sebart_rf = sebart(y = y, X = X, X_test = X_test,
                      pilot_method = "rf",
                      ntree = 200, nsave = 1000, nburn = 1000, verbose = FALSE)
-    results$sbart_rf = fit_sbart_rf
+    results$sebart_rf = fit_sebart_rf
   }, error = function(e) { 
-    cat("SBART_RF failed:", e$message, "\n")
-    results$sbart_rf <<- NULL
+    cat("sebart_RF failed:", e$message, "\n")
+    results$sebart_rf <<- NULL
   })
 })
 
@@ -147,8 +147,8 @@ print(performance)
 
 par(mfrow = c(2, 3))
 
-model_names <- c("bart", "sbart", "sblm", "bbart_bc", "sbart_rf")
-plot_titles <- c("BART", "SBART", "SBLM", "BBART_BC", "SBART_RF")
+model_names <- c("bart", "sebart", "sblm", "bbart_bc", "sebart_rf")
+plot_titles <- c("BART", "sebart", "SBLM", "BBART_BC", "sebart_RF")
 
 for (i in 1:4) {
   if (model_names[i] %in% names(results) && !is.null(results[[model_names[i]]])) {
@@ -177,18 +177,18 @@ par(mfrow = c(1, 1))
 dev.new()
 par(mfrow = c(1, 4))
 
-if (!is.null(results$sbart$post_g)) {
+if (!is.null(results$sebart$post_g)) {
   y_unique = sort(unique(y))
-  g_mean = colMeans(results$sbart$post_g)
+  g_mean = colMeans(results$sebart$post_g)
   
   if (length(y_unique) == length(g_mean)) {
-    plot(y_unique, g_mean, main = "SBART Transformation", 
+    plot(y_unique, g_mean, main = "sebart Transformation", 
          xlab = "y", ylab = "g(y)", type = "l", lwd = 2)
     
     # Add some posterior draws for uncertainty
-    n_draws = min(50, nrow(results$sbart$post_g))
-    for (i in sample(1:nrow(results$sbart$post_g), n_draws)) {
-      lines(y_unique, results$sbart$post_g[i,], col = "gray", lwd = 0.5)
+    n_draws = min(50, nrow(results$sebart$post_g))
+    for (i in sample(1:nrow(results$sebart$post_g), n_draws)) {
+      lines(y_unique, results$sebart$post_g[i,], col = "gray", lwd = 0.5)
     }
     lines(y_unique, g_mean, lwd = 2, col = "black")
   }
@@ -222,18 +222,18 @@ if (!is.null(results$bbart_bc$post_lambda)) {
        paste("Mean:", round(lambda_mean, 3)), pos = 4, col = "red")
 }
 
-if (!is.null(results$sbart_rf$post_g)) {
+if (!is.null(results$sebart_rf$post_g)) {
   y_unique = sort(unique(y))
-  g_mean = colMeans(results$sbart_rf$post_g)
+  g_mean = colMeans(results$sebart_rf$post_g)
   
   if (length(y_unique) == length(g_mean)) {
-    plot(y_unique, g_mean, main = "SBART_RF Transformation", 
+    plot(y_unique, g_mean, main = "sebart_RF Transformation", 
          xlab = "y", ylab = "g(y)", type = "l", lwd = 2)
 
     # Add some posterior draws for uncertainty
-    n_draws = min(50, nrow(results$sbart_rf$post_g))
-    for (i in sample(1:nrow(results$sbart_rf$post_g), n_draws)) {
-      lines(y_unique, results$sbart_rf$post_g[i,], col = "gray", lwd = 0.5)
+    n_draws = min(50, nrow(results$sebart_rf$post_g))
+    for (i in sample(1:nrow(results$sebart_rf$post_g), n_draws)) {
+      lines(y_unique, results$sebart_rf$post_g[i,], col = "gray", lwd = 0.5)
     }
     lines(y_unique, g_mean, lwd = 2, col = "black")
   }

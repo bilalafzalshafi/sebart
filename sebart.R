@@ -1,12 +1,8 @@
-#' Semiparametric Bayesian BART with Location-Scale Robustness
-#'
+#' Semiparametric BART
+
 #' MCMC sampling for semiparametric Bayesian regression with
 #' 1) an unknown (nonparametric) transformation and 2) a BART model
-#' for the regression function. The transformation is modeled as unknown
-#' and learned jointly with the BART model using a blocked Gibbs sampler
-#' with proper location-scale parameter expansion for robustness.
-#' A pilot BART run or Random Forest can be used to approximate the posterior distribution
-#' needed for transformation inference.
+#' for the regression function.
 #'
 #' @param y \code{n x 1} response vector
 #' @param X \code{n x p} matrix of predictors
@@ -42,12 +38,12 @@
 #' evaluated at the unique \code{y} values
 #' \item \code{post_mu}: \code{nsave} posterior samples of the location parameter
 #' \item \code{post_sigma}: \code{nsave} posterior samples of the scale parameter
-#' \item \code{model}: the model fit (here, \code{sbart})
+#' \item \code{model}: the model fit (here, \code{sebart})
 #' }
 #' as well as the arguments passed in.
 #'
 #' @details This function provides fully Bayesian inference for a
-#' transformed BART model using blocked Gibbs sampling with proper
+#' transformed BART model using blocked Gibbs sampling with
 #' location-scale parameter expansion for robustness.
 #' The transformation is modeled as unknown and learned jointly
 #' with the BART model (unless \code{approx_g} = TRUE, which then uses
@@ -60,33 +56,8 @@
 #' required for transformation inference. The main MCMC then alternates
 #' between sampling the transformation (given current BART fit), sampling
 #' location-scale parameters (μ,σ) for robustness, and updating the BART model.
-#'
-#' @note The location-scale parameters (μ,σ) are properly sampled from their
-#' posterior distribution and the reported transformation is adjusted to ensure
-#' identifiability following the LS-PX framework.
-#'
-#' @examples
-#' \donttest{
-#' # Simulate data from a transformed nonlinear model:
-#' n <- 200
-#' p <- 5
-#' X <- matrix(rnorm(n*p), n, p)
-#' f_true <- sin(2*X[,1]) + X[,2]^2 - X[,3]*X[,4] + rnorm(n, sd=0.1)
-#' y <- exp(f_true + 0.5*rnorm(n))  # log-normal with nonlinear mean
-#' 
-#' # Test data
-#' X_test <- matrix(rnorm(50*p), 50, p)
-#' 
-#' # Fit the semiparametric Bayesian BART model with pilot BART:
-#' fit1 <- sbart(y = y, X = X, X_test = X_test, pilot_method = "bart")
-#' 
-#' # Fit with Random Forest initialization (faster):
-#' fit2 <- sbart(y = y, X = X, X_test = X_test, pilot_method = "rf")
-#' 
-#' names(fit1) # what is returned
-#' }
 #' @export
-sbart = function(y, X, X_test = X,
+sebart = function(y, X, X_test = X,
                  fixedX = (length(y) >= 500),
                  approx_g = FALSE,
                  pilot_method = c("bart", "rf"),
@@ -302,7 +273,7 @@ sbart = function(y, X, X_test = X,
 
   # Apply initial transformation
   z = g(y)
-
+  
   # Define the grid for approximations using equally-spaced + quantile points:
   y_grid = sort(unique(c(
     seq(min(y), max(y), length.out = ngrid/2),
@@ -386,6 +357,7 @@ sbart = function(y, X, X_test = X,
 
       # Update the inverse transformation:
       g_inv = SeBR:::g_inv_approx(g = g, t_grid = y_grid)
+
     }
 
     #--------------------------------------------------------------------------
@@ -460,7 +432,7 @@ sbart = function(y, X, X_test = X,
     post_g = post_g,
     post_mu = post_mu,
     post_sigma = post_sigma,
-    model = 'sbart', 
+    model = 'sebart', 
     y = y, X = X, X_test = X_test, 
     fixedX = fixedX, approx_g = approx_g,
     pilot_method = pilot_method,

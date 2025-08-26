@@ -1,9 +1,9 @@
-# End-to-end demonstration of semiparametric Bayesian BART (sbart)
+# End-to-end demonstration of semiparametric BART (sebart)
 
 # Load required libraries
 library(dbarts)
 library(SeBR)
-source("sbart.R")
+source("sebart.R")
 
 # Set seed for reproducibility
 set.seed(123)
@@ -31,8 +31,8 @@ cat("Test data: n_test =", n_test, "\n")
 cat("Response range: [", round(min(y), 2), ",", round(max(y), 2), "]\n\n")
 
 # Fit the semiparametric Bayesian BART model
-cat("Fitting sbart model...\n")
-fit <- sbart(y = y, X = X, X_test = X_test,
+cat("Fitting sebart model...\n")
+fit <- sebart(y = y, X = X, X_test = X_test,
              fixedX = FALSE,
              approx_g = FALSE,
              pilot_ndraws = 200,
@@ -59,10 +59,10 @@ cat("Posterior sigma range: [",
 cat("\nCreating prediction plots...\n")
 pi_y <- t(apply(fit$post_ypred, 2, quantile, c(0.05, 0.95)))
 
-png("sbart_predictions.png", width=800, height=600)
+png("sebart_predictions.png", width=800, height=600)
 plot(1:nrow(pi_y), pi_y[,1], type='n', ylim=range(pi_y),
      xlab='Test observation', ylab='y', 
-     main='SBART: 90% Prediction Intervals on Test Data')
+     main='sebart: 90% Prediction Intervals on Test Data')
 segments(1:nrow(pi_y), pi_y[,1], 1:nrow(pi_y), pi_y[,2], col='lightblue', lwd=2)
 points(1:nrow(pi_y), fit$fitted.values, pch=16, col='darkblue')
 legend('topright', c('90% PI', 'Posterior Mean'), 
@@ -71,9 +71,9 @@ dev.off()
 
 # Plot 2: Transformation evolution
 y0 <- sort(unique(y))
-png("sbart_transformation.png", width=800, height=600)
+png("sebart_transformation.png", width=800, height=600)
 plot(y0, fit$post_g[1,], type='n', ylim=range(fit$post_g),
-     xlab='y', ylab='g(y)', main="SBART: Posterior Draws of Transformation")
+     xlab='y', ylab='g(y)', main="sebart: Posterior Draws of Transformation")
 for(s in sample(nrow(fit$post_g), 50)) {
   lines(y0, fit$post_g[s,], col='gray')
 }
@@ -83,10 +83,10 @@ legend('bottomright', c('Posterior draws', 'Posterior mean'),
 dev.off()
 
 # Plot 3: Posterior predictive checks
-png("sbart_pp_check.png", width=800, height=600)
+png("sebart_pp_check.png", width=800, height=600)
 y_grid <- seq(min(y), max(y), length.out=100)
 plot(y_grid, y_grid, type='n', ylim=c(0,1),
-     xlab='y', ylab='F(y)', main='SBART: Posterior Predictive ECDF Check')
+     xlab='y', ylab='F(y)', main='sebart: Posterior Predictive ECDF Check')
 
 # Plot several posterior predictive ECDFs
 for(s in sample(nrow(fit$post_ypred), 20)) {
@@ -101,9 +101,9 @@ legend('bottomright', c('Posterior predictive', 'Observed'),
 dev.off()
 
 # Plot 4: Sigma trace plot
-png("sbart_sigma_trace.png", width=800, height=600)
+png("sebart_sigma_trace.png", width=800, height=600)
 plot(fit$post_sigma, type='l', xlab='MCMC Iteration', ylab='Sigma',
-     main='SBART: Posterior Trace of Error Standard Deviation')
+     main='sebart: Posterior Trace of Error Standard Deviation')
 abline(h=mean(fit$post_sigma), col='red', lwd=2)
 dev.off()
 
@@ -117,6 +117,6 @@ interval_widths <- pi_y[,2] - pi_y[,1]
 cat("Prediction interval width summary:\n")
 print(summary(interval_widths))
 
-cat("\nSBART demonstration complete!\n")
-cat("Plots saved: sbart_predictions.png, sbart_transformation.png,\n")
-cat("             sbart_pp_check.png, sbart_sigma_trace.png\n")
+cat("\nsebart demonstration complete!\n")
+cat("Plots saved: sebart_predictions.png, sebart_transformation.png,\n")
+cat("             sebart_pp_check.png, sebart_sigma_trace.png\n")

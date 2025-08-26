@@ -1,6 +1,6 @@
 # Multi-iteration model comparison for real datasets
 
-source("sbart.R")
+source("sebart.R")
 source("bbart_bc.R")
 source("real_data_helpers.R")
 
@@ -9,10 +9,37 @@ library(dplyr)
 library(tidyr)
 library(gridExtra)
 
-n_iterations <- 2
+n_iterations <- 100  # Use 10 iterations for publication-quality results
+                   # Set to 2-3 for testing/debugging
+
+# Calculate Continuous Ranked Probability Score
+# CRPS = E|Y' - y| - 0.5 * E|Y' - Y''|
+# where Y' and Y'' are independent samples from predictive distribution
+# calculate_crps <- function(post_samples, y_true) {
+#   n_samples <- nrow(post_samples)
+#   n_obs <- length(y_true)
+#   
+#   # First term: E|Y' - y|
+#   first_term <- mean(abs(post_samples - matrix(y_true, nrow = n_samples, 
+#                                                 ncol = n_obs, byrow = TRUE)))
+#   
+#   # Second term: 0.5 * E|Y' - Y''|
+#   # Approximate by comparing random pairs of posterior samples
+#   n_pairs <- min(1000, n_samples)
+#   idx1 <- sample(n_samples, n_pairs, replace = TRUE)
+#   idx2 <- sample(n_samples, n_pairs, replace = TRUE)
+#   
+#   second_term <- 0
+#   for (i in 1:n_obs) {
+#     second_term <- second_term + mean(abs(post_samples[idx1, i] - post_samples[idx2, i]))
+#   }
+#   second_term <- 0.5 * second_term / n_obs
+#   
+#   return(first_term - second_term)
+# }
 
 run_real_data_iteration <- function(dataset_name, target_feature, 
-                                   models_to_test = c("sbart", "bbart_bc", "bart", "sblm"),
+                                   models_to_test = c("sebart", "bart", "bbart_bc", "sblm"),
                                    iteration_seed = 123,
                                    alpha_level = 0.10) {
   
@@ -22,25 +49,23 @@ run_real_data_iteration <- function(dataset_name, target_feature,
   
   for (model_name in models_to_test) {
     
-    start_time <- Sys.time()
+    # start_time <- Sys.time()
     
-    if (model_name == "sbart") {
-      fit <- sbart(y = real_data$y_train, X = real_data$X_train, 
+    if (model_name == "sebart") {
+      fit <- sebart(y = real_data$y_train, X = real_data$X_train, 
                     X_test = real_data$X_test, ntree = 200, nsave = 1000, nburn = 1000,
                     verbose = FALSE)
       y_pred <- apply(fit$post_ypred, 2, mean)
-      pred_intervals_80 <- apply(fit$post_ypred, 2, quantile, c(0.10, 0.90))
       pred_intervals <- apply(fit$post_ypred, 2, quantile, c(alpha_level/2, 1-alpha_level/2))
-      pred_intervals_95 <- apply(fit$post_ypred, 2, quantile, c(0.025, 0.975))
+      # post_samples <- fit$post_ypred
       
     } else if (model_name == "bbart_bc") {
       fit <- bbart_bc(y = real_data$y_train, X = real_data$X_train, 
                       X_test = real_data$X_test, ntree = 200, nsave = 1000, nburn = 1000,
                       verbose = FALSE)
       y_pred <- apply(fit$post_ypred, 2, mean)
-      pred_intervals_80 <- apply(fit$post_ypred, 2, quantile, c(0.10, 0.90))
       pred_intervals <- apply(fit$post_ypred, 2, quantile, c(alpha_level/2, 1-alpha_level/2))
-      pred_intervals_95 <- apply(fit$post_ypred, 2, quantile, c(0.025, 0.975))
+      # post_samples <- fit$post_ypred
       
     } else if (model_name == "bart") {
       library(dbarts)
@@ -48,43 +73,36 @@ run_real_data_iteration <- function(dataset_name, target_feature,
                   x.test = real_data$X_test, ndpost = 1000, nskip = 1000,
                   ntree = 200, verbose = FALSE)
       y_pred <- apply(fit$yhat.test, 2, mean)
-      pred_intervals_80 <- apply(fit$yhat.test, 2, quantile, c(0.10, 0.90))
       pred_intervals <- apply(fit$yhat.test, 2, quantile, c(alpha_level/2, 1-alpha_level/2))
-      pred_intervals_95 <- apply(fit$yhat.test, 2, quantile, c(0.025, 0.975))
+      # post_samples <- fit$yhat.test
       
     } else if (model_name == "sblm") {
       fit <- SeBR::sblm(y = real_data$y_train, X = real_data$X_train, 
                   X_test = real_data$X_test)
       y_pred <- apply(fit$post_ypred, 2, mean)
-      pred_intervals_80 <- apply(fit$post_ypred, 2, quantile, c(0.10, 0.90))
       pred_intervals <- apply(fit$post_ypred, 2, quantile, c(alpha_level/2, 1-alpha_level/2))
-      pred_intervals_95 <- apply(fit$post_ypred, 2, quantile, c(0.025, 0.975))
+      # post_samples <- fit$post_ypred
     }
     
-    end_time <- Sys.time()
+    # end_time <- Sys.time()
     
+    # Calculate metrics
     rmse <- sqrt(mean((y_pred - real_data$y_test)^2))
     
-    coverage_80 <- mean(real_data$y_test >= pred_intervals_80[1, ] & 
-                        real_data$y_test <= pred_intervals_80[2, ])
     coverage_90 <- mean(real_data$y_test >= pred_intervals[1, ] & 
                         real_data$y_test <= pred_intervals[2, ])
-    coverage_95 <- mean(real_data$y_test >= pred_intervals_95[1, ] & 
-                        real_data$y_test <= pred_intervals_95[2, ])
     
-    width_80 <- mean(pred_intervals_80[2, ] - pred_intervals_80[1, ])
     width_90 <- mean(pred_intervals[2, ] - pred_intervals[1, ])
-    width_95 <- mean(pred_intervals_95[2, ] - pred_intervals_95[1, ])
+    
+    # Calculate CRPS
+    # crps <- calculate_crps(post_samples, real_data$y_test)
     
     results[[model_name]] <- list(
       RMSE = rmse,
-      Coverage_80 = coverage_80,
       Coverage_90 = coverage_90, 
-      Coverage_95 = coverage_95,
-      Width_80 = width_80,
       Width_90 = width_90,
-      Width_95 = width_95,
-      Time_sec = as.numeric(difftime(end_time, start_time, units = "secs")),
+      # CRPS = crps,
+      # Time_sec = as.numeric(difftime(end_time, start_time, units = "secs")),
       Model = model_name,
       Dataset = dataset_name,
       Target = target_feature,
@@ -113,13 +131,10 @@ run_real_data_study <- function(dataset_name, target_feature, n_iterations = 10)
         Target = model_result$Target,
         Iteration = model_result$Iteration,
         RMSE = model_result$RMSE,
-        Coverage_80 = model_result$Coverage_80,
         Coverage_90 = model_result$Coverage_90,
-        Coverage_95 = model_result$Coverage_95,
-        Width_80 = model_result$Width_80,
         Width_90 = model_result$Width_90,
-        Width_95 = model_result$Width_95,
-        Time_sec = model_result$Time_sec,
+        # CRPS = model_result$CRPS,
+        # Time_sec = model_result$Time_sec,
         stringsAsFactors = FALSE
       )
     }))
@@ -143,123 +158,69 @@ create_real_data_performance_plots <- function(all_results) {
     return(NULL)
   }
   
-  combined_metrics$Study <- paste(combined_metrics$Dataset, combined_metrics$Target, sep = "_")
+  # Ensure correct model order
+  combined_metrics$Model <- factor(combined_metrics$Model, 
+                                  levels = c("sebart", "bart", "bbart_bc", "sblm"))
   
-  coverage_90_plot <- ggplot(combined_metrics, aes(x = Model, y = Coverage_90, fill = Model)) +
-    geom_boxplot() +
-    geom_hline(yintercept = 0.9, linetype = "dashed", color = "red") +
-    facet_wrap(~ Study, scales = "free_x") +
-    labs(title = "90% Coverage Comparison", 
-         subtitle = "Red line = 90% target",
-         y = "Coverage Rate") +
-    theme_minimal() +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  # Define professional theme for all plots
+  publication_theme <- theme_bw() +
+    theme(
+      panel.grid.major = element_line(color = "gray90", size = 0.5),
+      panel.grid.minor = element_blank(),
+      panel.border = element_rect(color = "black", size = 0.5),
+      strip.background = element_rect(fill = "white", color = "black", size = 0.5),
+      strip.text = element_text(size = 10, face = "bold"),
+      axis.text = element_text(size = 9, color = "black"),
+      axis.title = element_text(size = 11, face = "bold"),
+      axis.text.x = element_text(angle = 0, hjust = 0.5),
+      plot.title = element_text(size = 13, face = "bold", hjust = 0.5),
+      plot.subtitle = element_text(size = 10, hjust = 0.5, color = "gray30"),
+      legend.position = "none"
+    )
   
-  coverage_80_plot <- ggplot(combined_metrics, aes(x = Model, y = Coverage_80, fill = Model)) +
-    geom_boxplot() +
-    geom_hline(yintercept = 0.8, linetype = "dashed", color = "red") +
-    facet_wrap(~ Study, scales = "free_x") +
-    labs(title = "80% Coverage Comparison", 
-         subtitle = "Red line = 80% target",
-         y = "Coverage Rate") +
-    theme_minimal() +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  # Single horizontal box plot for interval widths (averaged across all datasets)
+  width_coverage_data <- combined_metrics %>%
+    group_by(Model) %>%
+    summarise(
+      Mean_Coverage = mean(Coverage_90),
+      .groups = 'drop'
+    )
   
-  coverage_95_plot <- ggplot(combined_metrics, aes(x = Model, y = Coverage_95, fill = Model)) +
-    geom_boxplot() +
-    geom_hline(yintercept = 0.95, linetype = "dashed", color = "red") +
-    facet_wrap(~ Study, scales = "free_x") +
-    labs(title = "95% Coverage Comparison", 
-         subtitle = "Red line = 95% target",
-         y = "Coverage Rate") +
-    theme_minimal() +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  # Calculate position for coverage labels
+  max_width <- max(combined_metrics$Width_90) * 1.15
   
-  rmse_plot <- ggplot(combined_metrics, aes(x = Model, y = RMSE, fill = Model)) +
-    geom_boxplot() +
-    facet_wrap(~ Study, scales = "free") +
-    labs(title = "RMSE Comparison", y = "RMSE") +
-    theme_minimal() +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  width_plot <- ggplot(combined_metrics, aes(x = Width_90, y = Model)) +
+    geom_boxplot(fill = "white", color = "black", outlier.size = 1, 
+                 outlier.shape = 1, size = 0.5) +
+    geom_text(data = width_coverage_data, 
+              aes(x = max_width, y = Model, 
+                  label = paste0(round(Mean_Coverage * 100), "%")),
+              size = 3.5, color = "blue", fontface = "bold", hjust = 0) +
+    labs(title = "90% Prediction Interval Widths",
+         x = "Interval Width") +
+    publication_theme +
+    scale_x_continuous(expand = expansion(mult = c(0.05, 0.20)))
   
-  width_90_plot <- ggplot(combined_metrics, aes(x = Model, y = Width_90, fill = Model)) +
-    geom_boxplot() +
-    facet_wrap(~ Study, scales = "free") +
-    labs(title = "90% Interval Width Comparison", y = "Mean Interval Width") +
-    theme_minimal() +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  # Calculate RMSE summary table
+  rmse_summary <- combined_metrics %>%
+    group_by(Model, Dataset, Target) %>%
+    summarise(
+      Mean_RMSE = mean(RMSE, na.rm = TRUE),
+      .groups = 'drop'
+    ) %>%
+    mutate(Dataset_Target = paste(Dataset, Target, sep = "_")) %>%
+    select(-Dataset, -Target) %>%
+    pivot_wider(names_from = Dataset_Target, values_from = Mean_RMSE) %>%
+    mutate(Average = round(rowMeans(select(., -Model), na.rm = TRUE), 3))
   
-  width_comparison_plot <- combined_metrics %>%
-    select(Model, Study, Width_80, Width_90, Width_95) %>%
-    gather(key = "Interval_Level", value = "Width", -Model, -Study) %>%
-    mutate(Interval_Level = factor(Interval_Level, levels = c("Width_80", "Width_90", "Width_95"),
-                                  labels = c("80%", "90%", "95%"))) %>%
-    ggplot(aes(x = Model, y = Width, fill = Interval_Level)) +
-    geom_boxplot() +
-    facet_wrap(~ Study, scales = "free") +
-    labs(title = "Interval Width by Coverage Level", 
-         y = "Mean Interval Width", fill = "Interval Level") +
-    theme_minimal() +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1))
-  
-  time_plot <- ggplot(combined_metrics, aes(x = Model, y = Time_sec, fill = Model)) +
-    geom_boxplot() +
-    facet_wrap(~ Study, scales = "free") +
-    labs(title = "Computation Time Comparison", y = "Time (seconds)") +
-    theme_minimal() +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  # Round all numeric columns
+  rmse_summary <- rmse_summary %>%
+    mutate(across(where(is.numeric), ~round(., 3)))
   
   return(list(
-    coverage_80 = coverage_80_plot,
-    coverage_90 = coverage_90_plot,
-    coverage_95 = coverage_95_plot,
-    rmse = rmse_plot,
-    width_90 = width_90_plot,
-    width_comparison = width_comparison_plot,
-    time = time_plot
+    width_plot = width_plot,
+    rmse_table = rmse_summary
   ))
-}
-
-create_real_data_prediction_plots <- function(all_results, study_name) {
-  
-  study_results <- all_results[[study_name]]
-  if (is.null(study_results)) {
-    warning("Study not found:", study_name)
-    return(NULL)
-  }
-  
-  # Use first iteration for plotting
-  first_iter <- study_results$iterations[[1]]
-  
-  # Load the same data to get true y values
-  parts <- strsplit(study_name, "_")[[1]]
-  dataset_name <- parts[1]
-  target_feature <- paste(parts[-1], collapse = "_")
-  
-  real_data <- load_real_dataset(dataset_name, target_feature, seed = 1)
-  
-  plots <- list()
-  
-  for (model_name in names(first_iter)) {
-    if (!is.null(first_iter[[model_name]]$Predictions)) {
-      
-      plot_data <- data.frame(
-        y_true = real_data$y_test,
-        y_pred = first_iter[[model_name]]$Predictions
-      )
-      
-      p <- ggplot(plot_data, aes(x = y_true, y = y_pred)) +
-        geom_point(alpha = 0.5) +
-        geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +
-        labs(title = paste(model_name, "-", study_name),
-             x = "True values", y = "Predicted values") +
-        theme_minimal()
-      
-      plots[[model_name]] <- p
-    }
-  }
-  
-  return(plots)
 }
 
 main_real_data_study <- function() {
@@ -267,12 +228,8 @@ main_real_data_study <- function() {
   
   datasets_to_test <- list(
     "forestfires" = c("area"),
-    "bikesharing" = c("temp", "hum", "windspeed"),
-    "concrete" = c("strength"),
-    "glass" = c("Na", "Al", "Ca"),
-    "studentperformance" = c("G3_norm"),
-    "parkinsons" = c("NHR", "DFA"),
-    "yeast" = c("mcg", "alm")
+    "bikesharing" = c("hum", "windspeed"),  # removed "temp"
+    "parkinsons" = c("NHR", "DFA")
   )
   
   for (dataset_name in names(datasets_to_test)) {
@@ -289,61 +246,45 @@ main_real_data_study <- function() {
     }
   }
     
-  perf_plots <- create_real_data_performance_plots(all_results)
+  results <- create_real_data_performance_plots(all_results)
   
-  if (!is.null(perf_plots)) {
-    ggsave("real_data_coverage_80.png", perf_plots$coverage_80, width = 12, height = 8)
-    ggsave("real_data_coverage_90.png", perf_plots$coverage_90, width = 12, height = 8)
-    ggsave("real_data_coverage_95.png", perf_plots$coverage_95, width = 12, height = 8)
-    ggsave("real_data_rmse.png", perf_plots$rmse, width = 12, height = 8)
-    ggsave("real_data_width_90.png", perf_plots$width_90, width = 12, height = 8)
-    ggsave("real_data_width_comparison.png", perf_plots$width_comparison, width = 12, height = 8)
-    ggsave("real_data_time.png", perf_plots$time, width = 12, height = 8)
+  if (!is.null(results)) {
+    # Save width plot
+    ggsave("real_data_width_90.png", results$width_plot, 
+           width = 8, height = 5, dpi = 300, bg = "white")
+    
+    # Print RMSE table
+    cat("\nMean RMSE by Model and Dataset\n")
+    cat("================================\n")
+    print(as.data.frame(results$rmse_table), row.names = FALSE)
+    
+    # Save RMSE table
+    write.csv(results$rmse_table, "rmse_summary_table.csv", row.names = FALSE)
   }
   
-  cat("\n=== REAL DATA SUMMARY STATISTICS ===\n")
+  # Summary statistics
   combined_metrics <- do.call(rbind, lapply(all_results, function(x) x$metrics))
   combined_metrics <- combined_metrics[!is.na(combined_metrics$RMSE), ]
   
   if (nrow(combined_metrics) > 0) {
-    summary_stats <- combined_metrics %>%
-      group_by(Model, Dataset, Target) %>%
+    # Simple summary by model
+    summary_by_model <- combined_metrics %>%
+      group_by(Model) %>%
       summarise(
-        Mean_RMSE = mean(RMSE, na.rm = TRUE),
-        Coverage_80 = mean(Coverage_80, na.rm = TRUE),
-        Coverage_90 = mean(Coverage_90, na.rm = TRUE), 
-        Coverage_95 = mean(Coverage_95, na.rm = TRUE),
-        Width_80 = mean(Width_80, na.rm = TRUE),
-        Width_90 = mean(Width_90, na.rm = TRUE),
-        Width_95 = mean(Width_95, na.rm = TRUE),
-        Mean_Time = mean(Time_sec, na.rm = TRUE),
+        RMSE = round(mean(RMSE, na.rm = TRUE), 3),
+        Coverage = round(mean(Coverage_90, na.rm = TRUE) * 100, 1),
+        Width = round(mean(Width_90, na.rm = TRUE), 3),
         .groups = 'drop'
-      )
+      ) %>%
+      arrange(match(Model, c("sebart", "bart", "bbart_bc", "sblm")))
     
-    formatted_summary <- combined_metrics %>%
-      group_by(Model, Dataset, Target) %>%
-      summarise(
-        RMSE = mean(RMSE, na.rm = TRUE),
-        "80%" = paste0(round(mean(Width_80, na.rm = TRUE), 3), " (", 
-                      round(mean(Coverage_80, na.rm = TRUE), 2), ")"),
-        "90%" = paste0(round(mean(Width_90, na.rm = TRUE), 3), " (", 
-                      round(mean(Coverage_90, na.rm = TRUE), 2), ")"),
-        "95%" = paste0(round(mean(Width_95, na.rm = TRUE), 3), " (", 
-                      round(mean(Coverage_95, na.rm = TRUE), 2), ")"),
-        Time_sec = mean(Time_sec, na.rm = TRUE),
-        .groups = 'drop'
-      )
+    cat("\n\nOverall Model Performance\n")
+    cat("-------------------------\n")
+    print(as.data.frame(summary_by_model), row.names = FALSE)
     
-    print("=== DETAILED SUMMARY ===")
-    print("Format: Width (Coverage) for each interval level")
-    print(formatted_summary)
-    
-    print("\n=== STANDARD SUMMARY ===")
-    print(summary_stats)
-    
-    write.csv(combined_metrics, "real_data_detailed_metrics.csv", row.names = FALSE)
-    write.csv(summary_stats, "real_data_summary_statistics.csv", row.names = FALSE)
-    write.csv(formatted_summary, "real_data_formatted_summary.csv", row.names = FALSE)
+    # Save results
+    write.csv(combined_metrics, "results_raw.csv", row.names = FALSE)
+    write.csv(summary_by_model, "results_summary.csv", row.names = FALSE)
   }
   
   saveRDS(all_results, "real_data_results.rds")

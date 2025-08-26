@@ -1,7 +1,7 @@
 # Comparison script for semiparametric regression models
 library(SeBR)
 library(dbarts)
-source("sbart.R")
+source("sebart.R")
 source("bbart_bc.R")
 
 set.seed(123)
@@ -12,7 +12,7 @@ set.seed(123)
 # X = dat$X 
 # y_test = dat$y_test
 # X_test = dat$X_test
-# best rmse: sblm, best coverage: sbart
+# best rmse: sblm, best coverage: sebart
 
 n = 200; n_test = 1000; p = 10
 X = matrix(runif(n * p), n, p)
@@ -38,7 +38,7 @@ X_test = matrix(runif(n_test * p), n_test, p)
 # f_test = 10 * sin(pi * X_test[,1] * X_test[,2]) + 20 * (X_test[,3] - 0.5)^2 + 10 * X_test[,4] + 5 * X_test[,5]
 # y = f_true + rnorm(n, sd = 1)  # Identity transformation
 # y_test = f_test + rnorm(n_test, sd = 1)
-# best rmse: bart, best coverage: sbart
+# best rmse: bart, best coverage: sebart
 
 # Complex nonlinear function + step transformation
 f_true = 10 * sin(pi * X[,1] * X[,2]) + 20 * (X[,3] - 0.5)^2 + 10 * X[,4] + 5 * X[,5]
@@ -47,7 +47,7 @@ z = f_true + rnorm(n, sd = 0.5)
 z_test = f_test + rnorm(n_test, sd = 0.5)
 y = ifelse(z < 10, z^2, ifelse(z < 20, 2*z + 50, exp((z-20)*0.1) + 90))
 y_test = ifelse(z_test < 10, z_test^2, ifelse(z_test < 20, 2*z_test + 50, exp((z_test-20)*0.1) + 90))
-# best rmse: sbart, best coverage: sbart, fastest: bart
+# best rmse: sebart, best coverage: sebart, fastest: bart
 
 # Sigmoid transformation (bounded, non-Box-Cox)
 # f_true = 10 * sin(pi * X[,1] * X[,2]) + 20 * (X[,3] - 0.5)^2 + 10 * X[,4] + 5 * X[,5]
@@ -56,7 +56,7 @@ y_test = ifelse(z_test < 10, z_test^2, ifelse(z_test < 20, 2*z_test + 50, exp((z
 # z_test = f_test + rnorm(n_test, sd = 0.5)
 # y = 20 / (1 + exp(-z/2))  # Sigmoid, range [0, 20]
 # y_test = 20 / (1 + exp(-z_test/2))
-# best rmse: sbart, best coverage: bbart_bc, fastest: bart
+# best rmse: sebart, best coverage: bbart_bc, fastest: bart
 
 # Arctangent transformation (smooth bounded, non-Box-Cox)
 # f_true = 10 * sin(pi * X[,1] * X[,2]) + 20 * (X[,3] - 0.5)^2 + 10 * X[,4] + 5 * X[,5]
@@ -65,7 +65,7 @@ y_test = ifelse(z_test < 10, z_test^2, ifelse(z_test < 20, 2*z_test + 50, exp((z
 # z_test = f_test + rnorm(n_test, sd = 0.5)
 # y = 100 * atan(z/5)  # Bounded transformation [-50π, 50π]
 # y_test = 100 * atan(z_test/5)
-# best rmse: sbart, best coverage: sbart, fastest: bart
+# best rmse: sebart, best coverage: sebart, fastest: bart
 
 # Polynomial transformation (x^2.5, non-Box-Cox)
 # f_true = 5 + 2 * (10 * sin(pi * X[,1] * X[,2]) + 20 * (X[,3] - 0.5)^2 + 10 * X[,4] + 5 * X[,5])
@@ -103,13 +103,13 @@ results$bart = list(
   model = 'bart'
 )
 
-# 2. Semiparametric BART (sbart)
-cat("Fitting sbart...\n")
-timing$sbart = system.time({
-  fit_sbart = sbart(y = y, X = X, X_test = X_test, 
+# 2. Semiparametric BART (sebart)
+cat("Fitting sebart...\n")
+timing$sebart = system.time({
+  fit_sebart = sebart(y = y, X = X, X_test = X_test, 
                     ntree = 200, nsave = 1000, nburn = 1000)
 })
-results$sbart = fit_sbart
+results$sebart = fit_sebart
 
 # 3. Semiparametric Bayesian Linear Model (sblm)
 cat("Fitting sblm...\n")
@@ -133,15 +133,15 @@ cat("\nEvaluating performance...\n")
 rmse = function(pred, true) sqrt(mean((pred - true)^2))
 
 performance = data.frame(
-  Model = c("BART", "SBART", "SBLM", "BBART_BC"),
+  Model = c("BART", "sebart", "SBLM", "BBART_BC"),
   RMSE = c(
     rmse(results$bart$fitted.values, y_test),
-    rmse(results$sbart$fitted.values, y_test), 
+    rmse(results$sebart$fitted.values, y_test), 
     rmse(results$sblm$fitted.values, y_test),
     rmse(results$bbart_bc$fitted.values, y_test)
   ),
   Time_sec = c(
-    timing$bart[3], timing$sbart[3], 
+    timing$bart[3], timing$sebart[3], 
     timing$sblm[3], timing$bbart_bc[3]
   )
 )
@@ -155,7 +155,7 @@ calc_coverage = function(post_pred, y_true, alpha = 0.1) {
 
 performance$Coverage_90 = c(
   calc_coverage(results$bart$post_ypred, y_test),
-  calc_coverage(results$sbart$post_ypred, y_test),
+  calc_coverage(results$sebart$post_ypred, y_test),
   calc_coverage(results$sblm$post_ypred, y_test), 
   calc_coverage(results$bbart_bc$post_ypred, y_test)
 )
@@ -169,7 +169,7 @@ calc_mean_width = function(post_pred, alpha = 0.1) {
 
 performance$Mean_Width = c(
   calc_mean_width(results$bart$post_ypred),
-  calc_mean_width(results$sbart$post_ypred),
+  calc_mean_width(results$sebart$post_ypred),
   calc_mean_width(results$sblm$post_ypred),
   calc_mean_width(results$bbart_bc$post_ypred)
 )
@@ -184,7 +184,7 @@ plot(y_test, results$bart$fitted.values, main = "BART",
      xlab = "True", ylab = "Predicted", pch = 16)
 abline(0, 1, col = "red")
 
-plot(y_test, results$sbart$fitted.values, main = "SBART", 
+plot(y_test, results$sebart$fitted.values, main = "sebart", 
      xlab = "True", ylab = "Predicted", pch = 16)
 abline(0, 1, col = "red")
 
@@ -201,13 +201,13 @@ dev.new()
 # Plot transformation estimates (for models that estimate transformations)
 par(mfrow = c(1, 3))
 
-# Plot SBART transformation
-if(!is.null(results$sbart$post_g)) {
+# Plot sebart transformation
+if(!is.null(results$sebart$post_g)) {
   y_unique = sort(unique(y))
-  g_mean = colMeans(results$sbart$post_g)
+  g_mean = colMeans(results$sebart$post_g)
   
   if(length(y_unique) == length(g_mean)) {
-    plot(y_unique, g_mean, main = "SBART Transformation", 
+    plot(y_unique, g_mean, main = "sebart Transformation", 
          xlab = "y", ylab = "g(y)", type = "l", lwd = 2)
     
     if(exists("dat") && "g_true" %in% names(dat) && "y_grid" %in% names(dat)) {

@@ -1,4 +1,4 @@
-#' Generate data for SBART testing scenarios using Friedman's function
+#' Generate data for sebart testing scenarios using Friedman's function
 #' 
 #' @param n_train number of training observations
 #' @param n_test number of test observations  
@@ -6,7 +6,7 @@
 #' @param scenario transformation scenario
 #' @param heterosked logical; add heteroskedasticity
 #' @param seed random seed for reproducibility
-simulate_sbart_data <- function(n_train = 200, n_test = 1000, p = 10, 
+simulate_sebart_data <- function(n_train = 200, n_test = 1000, p = 10, 
                                scenario = "box_cox", heterosked = FALSE, 
                                seed = NULL) {
   
@@ -31,7 +31,7 @@ simulate_sbart_data <- function(n_train = 200, n_test = 1000, p = 10,
     z_test <- f_true_test + rnorm(n_test, sd = 0.5)
   }
   
-  # Apply g_inv to latent z to get observed y (like simulate_tlm)
+  # Apply g_inv to latent z to get observed y
   transform_info <- get_transformation(scenario)
   y_train <- transform_info$g_inv(z_train)
   y_test <- transform_info$g_inv(z_test)
@@ -90,7 +90,7 @@ get_transformation <- function(scenario) {
 
     "box_cox" = list(
       g = function(y) g_bc(y, lambda = 0.5),
-      g_inv = function(z) SebR:::g_inv_bc(z, lambda = 0.5),
+      g_inv = function(z) SeBR:::g_inv_bc(z, lambda = 0.5),
       description = "Inverse Box-Cox square root transformation"
     ),
 
