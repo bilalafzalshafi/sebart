@@ -26,7 +26,7 @@
 #' \item \code{post_g}: \code{nsave} posterior samples of the transformation
 #' evaluated at the unique \code{y} values
 #' \item \code{post_lambda} \code{nsave} posterior samples of lambda
-#' \item \code{model}: the model fit (here, \code{bbart_bc})
+#' \item \code{model}: the model fit (here, \code{bart_bc})
 #' }
 #' as well as the arguments passed in.
 #'
@@ -38,7 +38,7 @@
 #' defaults and the algorithm alternates between updating the Box-Cox
 #' parameter and the BART model.
 #' @export
-bbart_bc = function(y, X, X_test = X,
+bart_bc = function(y, X, X_test = X,
                     ntree = 200,
                     lambda = NULL,
                     sample_lambda = TRUE,
@@ -252,7 +252,7 @@ bbart_bc = function(y, X, X_test = X,
     post_ypred = post_ypred,
     post_g = post_g, 
     post_lambda = post_lambda,
-    model = 'bbart_bc', 
+    model = 'bart_bc', 
     y = y, X = X, X_test = X_test, 
     ntree = ntree,
     sample_lambda = sample_lambda,

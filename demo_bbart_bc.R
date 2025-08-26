@@ -1,9 +1,9 @@
-# End-to-end demonstration of BART with Box-Cox transformation (bbart_bc)
+# End-to-end demonstration of BART with Box-Cox transformation (bart_bc)
 
 # Load required libraries
 library(dbarts)
 library(SeBR)
-source("bbart_bc.R")
+source("bart_bc.R")
 
 # Set seed for reproducibility
 set.seed(456)
@@ -34,8 +34,8 @@ cat("Response range: [", round(min(y), 2), ",", round(max(y), 2), "]\n")
 cat("Latent scale range: [", round(min(f_true), 2), ",", round(max(f_true), 2), "]\n\n")
 
 # Fit model with lambda estimation
-cat("Fitting bbart_bc model with lambda estimation...\n")
-fit_estimated <- bbart_bc(y = y, X = X, X_test = X_test,
+cat("Fitting bart_bc model with lambda estimation...\n")
+fit_estimated <- bart_bc(y = y, X = X, X_test = X_test,
                          ntree = 100,
                          lambda = NULL,  # Estimate lambda
                          sample_lambda = TRUE,
@@ -60,7 +60,7 @@ cat("Posterior predictive mean range: [",
 
 # Fit model with fixed lambda for comparison
 cat("\nFitting model with fixed lambda...\n")
-fit_fixed <- bbart_bc(y = y, X = X, X_test = X_test,
+fit_fixed <- bart_bc(y = y, X = X, X_test = X_test,
                      ntree = 100,
                      lambda = true_lambda,
                      sample_lambda = FALSE,
@@ -175,7 +175,7 @@ lambda_results <- list()
 
 for(i in seq_along(lambda_values)) {
   cat("Fitting with lambda =", lambda_values[i], "...\n")
-  fit_lambda <- bbart_bc(y = y[1:50], X = X[1:50,], X_test = X_test[1:10,],
+  fit_lambda <- bart_bc(y = y[1:50], X = X[1:50,], X_test = X_test[1:10,],
                         lambda = lambda_values[i], sample_lambda = FALSE,
                         nsave = 100, nburn = 50, verbose = FALSE)
   lambda_results[[i]] <- fit_lambda

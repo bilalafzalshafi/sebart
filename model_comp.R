@@ -2,7 +2,7 @@
 library(SeBR)
 library(dbarts)
 source("sebart.R")
-source("bbart_bc.R")
+source("bart_bc.R")
 
 set.seed(123)
 
@@ -23,7 +23,7 @@ X_test = matrix(runif(n_test * p), n_test, p)
 # f_test = 10 * sin(pi * X_test[,1] * X_test[,2]) + 20 * (X_test[,3] - 0.5)^2 + 10 * X_test[,4] + 5 * X_test[,5]
 # y = (f_true + rnorm(n, sd = 0.5))^2  # Square transformation
 # y_test = (f_test + rnorm(n_test, sd = 0.5))^2
-# best rmse: bbart_bc, best coverage: bbart_bc
+# best rmse: bart_bc, best coverage: bart_bc
 # seem to recover square root function well
 
 # Log transformation
@@ -31,7 +31,7 @@ X_test = matrix(runif(n_test * p), n_test, p)
 # f_test = 2 + 0.1 * (10 * sin(pi * X_test[,1] * X_test[,2]) + 20 * (X_test[,3] - 0.5)^2 + 10 * X_test[,4] + 5 * X_test[,5])
 # y = exp(f_true + rnorm(n, sd = 0.1))
 # y_test = exp(f_test + rnorm(n_test, sd = 0.1))
-# best rmse: bbart_bc, best coverage: bbart_bc
+# best rmse: bart_bc, best coverage: bart_bc
 
 # No transformation, just regression comparison
 # f_true = 10 * sin(pi * X[,1] * X[,2]) + 20 * (X[,3] - 0.5)^2 + 10 * X[,4] + 5 * X[,5]
@@ -56,7 +56,7 @@ y_test = ifelse(z_test < 10, z_test^2, ifelse(z_test < 20, 2*z_test + 50, exp((z
 # z_test = f_test + rnorm(n_test, sd = 0.5)
 # y = 20 / (1 + exp(-z/2))  # Sigmoid, range [0, 20]
 # y_test = 20 / (1 + exp(-z_test/2))
-# best rmse: sebart, best coverage: bbart_bc, fastest: bart
+# best rmse: sebart, best coverage: bart_bc, fastest: bart
 
 # Arctangent transformation (smooth bounded, non-Box-Cox)
 # f_true = 10 * sin(pi * X[,1] * X[,2]) + 20 * (X[,3] - 0.5)^2 + 10 * X[,4] + 5 * X[,5]
@@ -74,7 +74,7 @@ y_test = ifelse(z_test < 10, z_test^2, ifelse(z_test < 20, 2*z_test + 50, exp((z
 # z_test = f_test + rnorm(n_test, sd = 0.5)
 # y = z^2.5  # Power transformation outside Box-Cox integer range
 # y_test = z_test^2.5
-# best rmse: bbart_bc, best coverage: bbart_bc. bbart_bc works for fractional powers 
+# best rmse: bart_bc, best coverage: bart_bc. bart_bc works for fractional powers 
 
 # Nearly linear transformation
 # f_true = 10 * sin(pi * X[,1] * X[,2]) + 20 * (X[,3] - 0.5)^2 + 10 * X[,4] + 5 * X[,5]
@@ -83,7 +83,7 @@ y_test = ifelse(z_test < 10, z_test^2, ifelse(z_test < 20, 2*z_test + 50, exp((z
 # z_test = f_test + rnorm(n_test, sd = 0.5)
 # y = z + 0.1 * z^2  # Weak quadratic component
 # y_test = z_test + 0.1 * z_test^2
-# best rmse: bbart_bc, best coverage: bbart_bc
+# best rmse: bart_bc, best coverage: bart_bc
 
 # Storage for results
 results = list()
@@ -118,13 +118,13 @@ timing$sblm = system.time({
 })
 results$sblm = fit_sblm
 
-# 4. Bayesian BART with Box-Cox (bbart_bc)
-cat("Fitting bbart_bc...\n")
-timing$bbart_bc = system.time({
-  fit_bbart_bc = bbart_bc(y = y, X = X, X_test = X_test,
+# 4. Bayesian BART with Box-Cox (bart_bc)
+cat("Fitting bart_bc...\n")
+timing$bart_bc = system.time({
+  fit_bart_bc = bart_bc(y = y, X = X, X_test = X_test,
                           ntree = 200, nsave = 1000, nburn = 1000)
 })
-results$bbart_bc = fit_bbart_bc
+results$bart_bc = fit_bart_bc
 
 # Performance evaluation
 cat("\nEvaluating performance...\n")
@@ -133,16 +133,16 @@ cat("\nEvaluating performance...\n")
 rmse = function(pred, true) sqrt(mean((pred - true)^2))
 
 performance = data.frame(
-  Model = c("BART", "sebart", "SBLM", "BBART_BC"),
+  Model = c("BART", "sebart", "SBLM", "bart_bc"),
   RMSE = c(
     rmse(results$bart$fitted.values, y_test),
     rmse(results$sebart$fitted.values, y_test), 
     rmse(results$sblm$fitted.values, y_test),
-    rmse(results$bbart_bc$fitted.values, y_test)
+    rmse(results$bart_bc$fitted.values, y_test)
   ),
   Time_sec = c(
     timing$bart[3], timing$sebart[3], 
-    timing$sblm[3], timing$bbart_bc[3]
+    timing$sblm[3], timing$bart_bc[3]
   )
 )
 
@@ -157,7 +157,7 @@ performance$Coverage_90 = c(
   calc_coverage(results$bart$post_ypred, y_test),
   calc_coverage(results$sebart$post_ypred, y_test),
   calc_coverage(results$sblm$post_ypred, y_test), 
-  calc_coverage(results$bbart_bc$post_ypred, y_test)
+  calc_coverage(results$bart_bc$post_ypred, y_test)
 )
 
 # Add interval width (measure of uncertainty)
@@ -171,7 +171,7 @@ performance$Mean_Width = c(
   calc_mean_width(results$bart$post_ypred),
   calc_mean_width(results$sebart$post_ypred),
   calc_mean_width(results$sblm$post_ypred),
-  calc_mean_width(results$bbart_bc$post_ypred)
+  calc_mean_width(results$bart_bc$post_ypred)
 )
 
 print(performance)
@@ -192,7 +192,7 @@ plot(y_test, results$sblm$fitted.values, main = "SBLM",
      xlab = "True", ylab = "Predicted", pch = 16)
 abline(0, 1, col = "red")
 
-plot(y_test, results$bbart_bc$fitted.values, main = "BBART_BC", 
+plot(y_test, results$bart_bc$fitted.values, main = "bart_bc", 
      xlab = "True", ylab = "Predicted", pch = 16)
 abline(0, 1, col = "red")
 
@@ -233,13 +233,13 @@ if(!is.null(results$sblm$post_g)) {
   }
 }
 
-# Plot BBART_BC transformation (Box-Cox)
-if(!is.null(results$bbart_bc$post_lambda)) {
-  lambda_mean = mean(results$bbart_bc$post_lambda)
+# Plot bart_bc transformation (Box-Cox)
+if(!is.null(results$bart_bc$post_lambda)) {
+  lambda_mean = mean(results$bart_bc$post_lambda)
   y_seq = seq(min(y), max(y), length.out = 100)
   
   g_bc_vals = SeBR:::g_bc(y_seq, lambda = lambda_mean)
-  plot(y_seq, g_bc_vals, main = paste("BBART_BC (λ =", round(lambda_mean, 2), ")"), 
+  plot(y_seq, g_bc_vals, main = paste("bart_bc (λ =", round(lambda_mean, 2), ")"), 
        xlab = "y", ylab = "g(y)", type = "l", lwd = 2)
     
   if(exists("dat") && "g_true" %in% names(dat) && "y_grid" %in% names(dat)) {

@@ -8,7 +8,7 @@ library(tidyr)
 library(gridExtra)
 
 source("sebart.R")
-source("bbart_bc.R")
+source("bart_bc.R")
 source("simulation_helpers.R")
 
 set.seed(123)
@@ -52,10 +52,10 @@ fit_all_models <- function(data) {
     results$sblm <- fit_sblm
   })
   
-  timing$bbart_bc <- system.time({
-      fit_bbart_bc <- bbart_bc(y = y_train, X = X_train, X_test = X_test,
+  timing$bart_bc <- system.time({
+      fit_bart_bc <- bart_bc(y = y_train, X = X_train, X_test = X_test,
                                ntree = 200, nsave = 1000, nburn = 1000, verbose = FALSE)
-      results$bbart_bc <- fit_bbart_bc
+      results$bart_bc <- fit_bart_bc
   })
   
   return(list(results = results, timing = timing))
@@ -144,7 +144,7 @@ create_width_plot <- function(all_results) {
   
   # Ensure correct model order
   combined_metrics$Model <- factor(combined_metrics$Model, 
-                                  levels = c("sebart", "bart", "bbart_bc", "sblm"))
+                                  levels = c("sebart", "bart", "bart_bc", "sblm"))
   
   # Define professional theme (matching real data version)
   publication_theme <- theme_bw() +
@@ -339,7 +339,7 @@ main_simulation <- function() {
     group_by(Model, Scenario) %>%
     summarise(Mean_RMSE = mean(RMSE, na.rm = TRUE), .groups = 'drop') %>%
     pivot_wider(names_from = Scenario, values_from = Mean_RMSE) %>%
-    arrange(match(Model, c("sebart", "bart", "bbart_bc", "sblm")))
+    arrange(match(Model, c("sebart", "bart", "bart_bc", "sblm")))
   
   # Round values for cleaner display
   rmse_table <- rmse_table %>%

@@ -1,7 +1,7 @@
 # Multi-iteration model comparison for real datasets
 
 source("sebart.R")
-source("bbart_bc.R")
+source("bart_bc.R")
 source("real_data_helpers.R")
 
 library(ggplot2)
@@ -39,7 +39,7 @@ n_iterations <- 100  # Use 10 iterations for publication-quality results
 # }
 
 run_real_data_iteration <- function(dataset_name, target_feature, 
-                                   models_to_test = c("sebart", "bart", "bbart_bc", "sblm"),
+                                   models_to_test = c("sebart", "bart", "bart_bc", "sblm"),
                                    iteration_seed = 123,
                                    alpha_level = 0.10) {
   
@@ -59,8 +59,8 @@ run_real_data_iteration <- function(dataset_name, target_feature,
       pred_intervals <- apply(fit$post_ypred, 2, quantile, c(alpha_level/2, 1-alpha_level/2))
       # post_samples <- fit$post_ypred
       
-    } else if (model_name == "bbart_bc") {
-      fit <- bbart_bc(y = real_data$y_train, X = real_data$X_train, 
+    } else if (model_name == "bart_bc") {
+      fit <- bart_bc(y = real_data$y_train, X = real_data$X_train, 
                       X_test = real_data$X_test, ntree = 200, nsave = 1000, nburn = 1000,
                       verbose = FALSE)
       y_pred <- apply(fit$post_ypred, 2, mean)
@@ -160,7 +160,7 @@ create_real_data_performance_plots <- function(all_results) {
   
   # Ensure correct model order
   combined_metrics$Model <- factor(combined_metrics$Model, 
-                                  levels = c("sebart", "bart", "bbart_bc", "sblm"))
+                                  levels = c("sebart", "bart", "bart_bc", "sblm"))
   
   # Define professional theme for all plots
   publication_theme <- theme_bw() +
@@ -276,7 +276,7 @@ main_real_data_study <- function() {
         Width = round(mean(Width_90, na.rm = TRUE), 3),
         .groups = 'drop'
       ) %>%
-      arrange(match(Model, c("sebart", "bart", "bbart_bc", "sblm")))
+      arrange(match(Model, c("sebart", "bart", "bart_bc", "sblm")))
     
     cat("\n\nOverall Model Performance\n")
     cat("-------------------------\n")

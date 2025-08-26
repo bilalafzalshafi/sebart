@@ -4,7 +4,7 @@ library(SeBR)
 library(dbarts)
 source("sebart.R")
 source("sebart_rf.R")
-source("bbart_bc.R")
+source("bart_bc.R")
 source("simulation_helpers.R")
 
 set.seed(123)
@@ -67,16 +67,16 @@ timing$sblm = system.time({
   })
 })
 
-# 4. Bayesian BART with Box-Cox (bbart_bc)
-cat("Fitting bbart_bc...\n")
-timing$bbart_bc = system.time({
+# 4. Bayesian BART with Box-Cox (bart_bc)
+cat("Fitting bart_bc...\n")
+timing$bart_bc = system.time({
   tryCatch({
-    fit_bbart_bc = bbart_bc(y = y, X = X, X_test = X_test,
+    fit_bart_bc = bart_bc(y = y, X = X, X_test = X_test,
                             ntree = 200, nsave = 1000, nburn = 1000, verbose = FALSE)
-    results$bbart_bc = fit_bbart_bc
+    results$bart_bc = fit_bart_bc
   }, error = function(e) {
-    cat("BBART_BC failed:", e$message, "\n")
-    results$bbart_bc <<- NULL
+    cat("bart_bc failed:", e$message, "\n")
+    results$bart_bc <<- NULL
   })
 })
 
@@ -147,8 +147,8 @@ print(performance)
 
 par(mfrow = c(2, 3))
 
-model_names <- c("bart", "sebart", "sblm", "bbart_bc", "sebart_rf")
-plot_titles <- c("BART", "sebart", "SBLM", "BBART_BC", "sebart_RF")
+model_names <- c("bart", "sebart", "sblm", "bart_bc", "sebart_rf")
+plot_titles <- c("BART", "sebart", "SBLM", "bart_bc", "sebart_RF")
 
 for (i in 1:4) {
   if (model_names[i] %in% names(results) && !is.null(results[[model_names[i]]])) {
@@ -211,14 +211,14 @@ if(!is.null(results$sblm$post_g)) {
   }
 }
 
-if (!is.null(results$bbart_bc$post_lambda)) {
-  lambda_mean = mean(results$bbart_bc$post_lambda)
-  lambda_sd = sd(results$bbart_bc$post_lambda)
+if (!is.null(results$bart_bc$post_lambda)) {
+  lambda_mean = mean(results$bart_bc$post_lambda)
+  lambda_sd = sd(results$bart_bc$post_lambda)
   
-  hist(results$bbart_bc$post_lambda, main = paste("BBART_BC λ posterior"), 
+  hist(results$bart_bc$post_lambda, main = paste("bart_bc λ posterior"), 
        xlab = "λ", col = "lightblue", border = "black")
   abline(v = lambda_mean, col = "red", lwd = 2)
-  text(lambda_mean, max(hist(results$bbart_bc$post_lambda, plot = FALSE)$counts) * 0.8,
+  text(lambda_mean, max(hist(results$bart_bc$post_lambda, plot = FALSE)$counts) * 0.8,
        paste("Mean:", round(lambda_mean, 3)), pos = 4, col = "red")
 }
 
