@@ -49,7 +49,6 @@ bart_bc = function(y, X, X_test = X,
                     n.threads = 1,
                     seed = NA_integer_){
 
-  # Library required here:
   if (!requireNamespace("dbarts", quietly = TRUE)) {
     stop(
       "Package \"dbarts\" must be installed to use this function.",
@@ -57,7 +56,6 @@ bart_bc = function(y, X, X_test = X,
     )
   }
 
-  # Initial checks:
   if(!is.matrix(X)) stop("X must be a matrix (rows = observations, columns = variables)")
   if(!is.matrix(X_test)) stop("X_test must be a matrix (rows = observations, columns = variables)")
   if(ncol(X) != ncol(X_test)) stop('X_test and X must have the same number of columns (variables)')
@@ -129,7 +127,7 @@ bart_bc = function(y, X, X_test = X,
 
   #----------------------------------------------------------------------------
   # Set up BART sampler
-  # Properly construct data frame with matrix columns
+  # Construct data frame with matrix columns
   X_df <- as.data.frame(X)
   colnames(X_df) <- paste0("X", 1:ncol(X))
   bart_data <- cbind(data.frame(z_scaled = z_scaled), X_df)

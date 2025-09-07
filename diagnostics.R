@@ -141,8 +141,8 @@ plot_sebart_ppd <- function(sebart_fit, y_test, main_title = "Posterior predicti
 #' @param standardize If TRUE, standardize both posterior and true transformations for comparison
 #' @return Creates a plot showing posterior draws of g
 plot_sebart_transformation <- function(sebart_fit, y_values = NULL, true_g_values = NULL, 
-                                    main_title = "Posterior draws of transformation (standardized)", 
-                                    n_draws = 50, standardize = TRUE) {
+                                    main_title = "Posterior draws of transformation", 
+                                    n_draws = 50, standardize = FALSE) {
   
   post_g <- sebart_fit$post_g
   
@@ -239,9 +239,13 @@ plot_sebart_transformation <- function(sebart_fit, y_values = NULL, true_g_value
   
   grid(col = "lightgray", lty = "dotted")
   
-  if (standardize && !is.null(true_g_plot)) {
+  if (!is.null(true_g_plot)) {
     correlation <- cor(g_mean_plot, true_g_plot)
-    cat("Correlation between standardized posterior mean and true transformation:", round(correlation, 3), "\n")
+    if (standardize) {
+      cat("Correlation between standardized posterior mean and true transformation:", round(correlation, 3), "\n")
+    } else {
+      cat("Correlation between posterior mean and true transformation:", round(correlation, 3), "\n")
+    }
   }
 }
 
@@ -374,7 +378,7 @@ create_all_sebart_diagnostics <- function(sebart_fit, y_test, true_g_values = NU
   
   # Plot 4: Transformation
   y_values <- sort(unique(sebart_fit$y))
-  plot_sebart_transformation(sebart_fit, y_values, true_g_values)
+  plot_sebart_transformation(sebart_fit, y_values, true_g_values, standardize = FALSE)
 
   # # Plot 5: Transformation (raw scale)
   # plot_sebart_transformation_raw(sebart_fit, y_values, true_g_values)
@@ -437,5 +441,5 @@ demo_all_sebart_diagnostics <- function(scenario = "box_cox", n_train = 200, n_t
 
 # Example usage
 if (interactive()) {
-  results <- demo_all_sebart_diagnostics('sigmoid')
+  results <- demo_all_sebart_diagnostics('arctangent')
 }

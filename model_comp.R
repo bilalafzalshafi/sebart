@@ -247,7 +247,6 @@ if(!is.null(results$bart_bc$post_lambda)) {
   }
 }
 
-# Summary
 cat("\n=== SUMMARY ===\n")
 cat("Best RMSE:", performance$Model[which.min(performance$RMSE)], 
     "(", round(min(performance$RMSE), 4), ")\n")

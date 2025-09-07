@@ -110,9 +110,6 @@ sebart = function(y, X, X_test = X,
   if(pilot_method == "rf" && is.null(rf_mtry)) rf_mtry = max(floor(p/3), 1)
   if(ntree < 10) stop('ntree must be at least 10')
   
-  # Hyperparameters for Gamma(a_sigma, b_sigma) prior on error precision
-  a_sigma = b_sigma = 0.001
-  
   #----------------------------------------------------------------------------
   # Initialize the transformation:
 
@@ -274,6 +271,19 @@ sebart = function(y, X, X_test = X,
   # Apply initial transformation
   z = g(y)
   
+  #----------------------------------------------------------------------------
+  # Compute data-adaptive priors based on empirical characteristics of z
+  
+  # Location prior: μ ~ N(μ₀, σ₀²) where μ₀ = sample mean of z
+  mu_0 = mean(z)
+  sigma_0_squared = var(z)  # Use sample variance as prior variance for location
+  
+  # Scale prior: σ⁻² ~ Gamma(a, b) where a and b are chosen based on sample variance
+  # We want the prior mean to be around 1/var(z) and have reasonable variance
+  sample_var_z = var(z)
+  a_sigma = 2  # Shape parameter
+  b_sigma = a_sigma * sample_var_z  # Rate parameter to center prior around 1/var(z)
+  
   # Define the grid for approximations using equally-spaced + quantile points:
   y_grid = sort(unique(c(
     seq(min(y), max(y), length.out = ngrid/2),
@@ -377,10 +387,10 @@ sebart = function(y, X, X_test = X,
                                   shape = a_sigma + n/2,
                                   rate = b_sigma + SSR/2))
 
-    # Sample mu (location parameter)
-    mu_var = 1000  # Diffuse prior variance
-    mu_post_var = 1/(n/sigma_epsilon^2 + 1/mu_var)
-    mu_post_mean = mu_post_var * sum(z - current_fit + mu)/sigma_epsilon^2
+    # Sample mu (location parameter) using data-adaptive prior
+    # Prior: μ ~ N(μ₀, σ₀²), Posterior: μ ~ N(μ_post, σ_post²)
+    mu_post_var = 1/(n/sigma_epsilon^2 + 1/sigma_0_squared)
+    mu_post_mean = mu_post_var * (sum(z - current_fit + mu)/sigma_epsilon^2 + mu_0/sigma_0_squared)
     mu = rnorm(1, mean = mu_post_mean, sd = sqrt(mu_post_var))
     
     # Update standardized z for BART
