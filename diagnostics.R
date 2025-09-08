@@ -365,7 +365,12 @@ plot_sebart_transformation <- function(sebart_fit, y_values = NULL, true_g_value
 create_all_sebart_diagnostics <- function(sebart_fit, y_test, true_g_values = NULL, 
                                        alpha_level = 0.10, layout = c(2, 2)) {
   
-  par(mfrow = layout, mar = c(4, 4, 3, 2))
+  # Adjust layout if variable selection is enabled
+  if (sebart_fit$var_select) {
+    par(mfrow = c(2, 3), mar = c(4, 4, 3, 2))
+  } else {
+    par(mfrow = layout, mar = c(4, 4, 3, 2))
+  }
   
   # Plot 1: Point estimates
   rmse <- plot_sebart_point_estimates(sebart_fit, y_test)
@@ -380,7 +385,20 @@ create_all_sebart_diagnostics <- function(sebart_fit, y_test, true_g_values = NU
   y_values <- sort(unique(sebart_fit$y))
   plot_sebart_transformation(sebart_fit, y_values, true_g_values, standardize = FALSE)
 
-  # # Plot 5: Transformation (raw scale)
+  # Plot 5: Variable selection (if enabled)
+  if (sebart_fit$var_select) {
+    # Simple bar plot of variable importance
+    p <- length(sebart_fit$var_importance_scores)
+    barplot(sebart_fit$var_importance_scores, 
+            names.arg = 1:p,
+            xlab = 'Variable Index', ylab = 'Importance Score',
+            main = 'Variable Importance Scores',
+            col = ifelse(1:p %in% sebart_fit$selected_vars, 'lightblue', 'lightgray'),
+            cex.main = 1.2, cex.lab = 1.1)
+    grid(col = "lightgray", lty = "dotted")
+  }
+
+  # # Plot 6: Transformation (raw scale) - commented out
   # plot_sebart_transformation_raw(sebart_fit, y_values, true_g_values)
   
   par(mfrow = c(1, 1))
@@ -388,7 +406,89 @@ create_all_sebart_diagnostics <- function(sebart_fit, y_test, true_g_values = NU
   cat("RMSE:", round(rmse, 3), "\n")
   cat("Coverage:", round(coverage, 3), "\n")
   
+  # Add variable selection summary if enabled
+  if (sebart_fit$var_select) {
+    print_var_selection_summary(sebart_fit)
+  }
+  
   return(list(rmse = rmse, coverage = coverage))
+}
+
+#' Variable selection sensitivity to number of trees
+#' 
+#' @param sebart_fit Output from sebart() function with variable selection enabled
+#' @param ntree_range Vector of tree numbers to test (default: c(50, 100, 200))
+#' @param main_title Title for the plot
+#' @return Creates a plot showing how variable importance changes with number of trees
+plot_var_selection_trees <- function(sebart_fit, ntree_range = c(50, 100, 200), 
+                                     main_title = "Variable Importance vs Number of Trees") {
+  
+  if (!sebart_fit$var_select) {
+    stop("sebart_fit must have variable selection enabled")
+  }
+  
+  # Get original data
+  y <- sebart_fit$y
+  X <- sebart_fit$X
+  X_test <- sebart_fit$X_test
+  
+  # Fit models with different numbers of trees
+  importance_results <- list()
+  
+  for (ntree in ntree_range) {
+    fit <- sebart(y = y, X = X, X_test = X_test,
+                  ntree = ntree, nsave = 200, nburn = 200,
+                  var_select = TRUE, var_select_threshold = 0.01,
+                  verbose = FALSE)
+    
+    importance_results[[as.character(ntree)]] <- fit$var_importance_scores
+  }
+  
+  # Create plot
+  p <- length(importance_results[[1]])
+  ntree_labels <- names(importance_results)
+  
+  plot(1, 1, type = 'n', xlim = c(1, p), ylim = c(0, max(unlist(importance_results))),
+       xlab = 'Variable Index', ylab = 'Importance Score',
+       main = main_title, cex.main = 1.2, cex.lab = 1.1)
+  
+  colors <- rainbow(length(ntree_range))
+  
+  for (i in 1:length(ntree_range)) {
+    lines(1:p, importance_results[[i]], col = colors[i], lwd = 2, type = 'b', pch = 16)
+  }
+  
+  legend('topright', legend = paste(ntree_labels, 'trees'), 
+         col = colors, lwd = 2, pch = 16, cex = 0.8)
+  
+  grid(col = "lightgray", lty = "dotted")
+  
+  return(importance_results)
+}
+
+#' Display variable selection results
+#' 
+#' @param sebart_fit Output from sebart() function with variable selection enabled
+#' @return Prints variable selection summary
+print_var_selection_summary <- function(sebart_fit) {
+  
+  if (!sebart_fit$var_select) {
+    cat("Variable selection was not enabled for this model.\n")
+    return(invisible(NULL))
+  }
+  
+  cat("\n=== Variable Selection Summary ===\n")
+  cat("Threshold:", sebart_fit$var_select_threshold, "\n")
+  cat("Selected variables:", length(sebart_fit$selected_vars), "of", length(sebart_fit$var_importance_scores), "\n")
+  cat("Variable indices:", paste(sebart_fit$selected_vars, collapse = ", "), "\n")
+  
+  cat("\nImportance scores:\n")
+  for (i in 1:length(sebart_fit$var_importance_scores)) {
+    status <- if (i %in% sebart_fit$selected_vars) " [SELECTED]" else ""
+    cat(sprintf("  Variable %d: %.4f%s\n", i, sebart_fit$var_importance_scores[i], status))
+  }
+  
+  cat("\n")
 }
 
 #' Demo function with sebart diagnostic workflow
@@ -397,7 +497,7 @@ create_all_sebart_diagnostics <- function(sebart_fit, y_test, true_g_values = NU
 #' @param n_train Number of training observations
 #' @param n_test Number of test observations
 #' @param p Number of predictors
-demo_all_sebart_diagnostics <- function(scenario = "box_cox", n_train = 200, n_test = 500, p = 10) {
+demo_all_sebart_diagnostics <- function(scenario = "box_cox", n_train = 200, n_test = 500, p = 10, var_select = TRUE) {
   
   cat("Generating data for scenario:", scenario, "\n")
   
@@ -420,9 +520,15 @@ demo_all_sebart_diagnostics <- function(scenario = "box_cox", n_train = 200, n_t
   z_test <- sim_data$z_test
   
   cat("Fitting sebart model...\n")
+
+  ntree_demo <- if (var_select) 10 else 200
+  nsave_demo <- if (var_select) 100 else 500
+  nburn_demo <- if (var_select) 100 else 500
   
   sebart_fit <- sebart(y = y_train, X = X_train, X_test = X_test, 
-                     ntree = 200, nsave = 1000, nburn = 1000, verbose = FALSE)
+                     ntree = ntree_demo, nsave = nsave_demo, nburn = nburn_demo, 
+                     var_select = TRUE, var_select_threshold = 0.2,
+                     verbose = FALSE)
   
   cat("Creating all diagnostic plots...\n")
   
