@@ -29,6 +29,8 @@
 #' @param verbose logical; if TRUE, print time remaining
 #' @param n.threads integer; number of threads to use (default 1)
 #' @param seed integer; random seed for reproducibility (default NA)
+#' @param var_select logical; if TRUE, perform variable selection (default FALSE)
+#' @param var_select_threshold numeric; threshold for variable selection (default 0.01)
 #' @return a list with the following elements:
 #' \itemize{
 #' \item \code{fitted.values} the posterior predictive mean at the test points \code{X_test}
@@ -70,9 +72,11 @@ sebart = function(y, X, X_test = X,
                  nsave = 1000,
                  nburn = 1000,
                  ngrid = 100,
-                 verbose = TRUE,
-                 n.threads = 1,
-                 seed = NA_integer_){
+                  verbose = TRUE,
+                  n.threads = 1,
+                  seed = NA_integer_,
+                  var_select = FALSE,
+                  var_select_threshold = 0.01){
 
   # Match pilot method argument
   pilot_method = match.arg(pilot_method)
@@ -312,7 +316,7 @@ sebart = function(y, X, X_test = X,
     control = dbarts::dbartsControl(
       verbose = FALSE,
       keepTrainingFits = TRUE,
-      keepTrees = FALSE,
+      keepTrees = var_select,  # Keep trees only if variable selection is enabled
       n.trees = ntree,
       n.chains = 1L,
       n.threads = n.threads,
@@ -330,6 +334,13 @@ sebart = function(y, X, X_test = X,
   post_g = array(NA, c(nsave, length(y0)))
   post_mu = rep(NA, nsave)
   post_sigma = rep(NA, nsave)
+  
+  # Initialize variable selection tracking arrays
+  if(var_select) {
+    var_usage_count = rep(0, p)  # Track total usage of each variable
+    var_importance_scores = rep(0, p)  # Track importance scores
+    selected_vars = 1:p  # Initially all variables selected
+  }
 
   # Initialize timer for progress reporting:
   if(verbose) timer0 = proc.time()[3]
@@ -400,6 +411,39 @@ sebart = function(y, X, X_test = X,
     main_sampler$setResponse(z_standardized)
 
     #----------------------------------------------------------------------------
+    # Variable selection: extract trees and count variable usage
+    if(var_select && nsi > nburn/2) {  # Start variable selection after half burn-in
+      tryCatch({
+        # Extract trees from current BART fit
+        trees = main_sampler$getTrees()
+        
+        # Count variable usage in all trees
+        if(!is.null(trees) && length(trees) > 0) {
+          for(tree_idx in 1:length(trees)) {
+            tree = trees[[tree_idx]]
+            if(!is.null(tree) && nrow(tree) > 0) {
+              # Extract variable indices used in splits (excluding leaf nodes)
+              split_vars = tree$var[tree$var > 0]  # var > 0 indicates split nodes
+              if(length(split_vars) > 0) {
+                # Count usage of each variable
+                for(var_idx in split_vars) {
+                  if(var_idx <= p) {  # Ensure valid variable index
+                    var_usage_count[var_idx] = var_usage_count[var_idx] + 1
+                  }
+                }
+              }
+            }
+          }
+        }
+      }, error = function(e) {
+        # Silently handle any errors in tree extraction
+        if(verbose && nsi %% 100 == 0) {
+          cat("Warning: Could not extract trees for variable selection at iteration", nsi, "\n")
+        }
+      })
+    }
+
+    #----------------------------------------------------------------------------
     # Store the MCMC:
     if(nsi > nburn){
 
@@ -407,12 +451,19 @@ sebart = function(y, X, X_test = X,
       # Get BART predictions at test points using object method
       X_test_df <- as.data.frame(X_test)
       colnames(X_test_df) <- paste0("X", 1:ncol(X_test))
-      bart_pred_std = main_sampler$predict(X_test_df)
+      if (var_select){
+        bart_pred_matrix <- main_sampler$predict(X_test_df)
+        bart_pred_std <- rowMeans(bart_pred_matrix)
+      }
+      else{
+        bart_pred_std <- main_sampler$predict(X_test_df)
+      }
       
       # Transform back to original scale: z_tilde = mu + sigma * f_BART(x) + sigma * epsilon
       current_sigma_std = current_sample$sigma[1]
       bart_pred = mu + sigma_epsilon * as.vector(bart_pred_std)
       ztilde = bart_pred + sigma_epsilon * current_sigma_std * rnorm(n = n_test)
+      
       post_ypred[nsi - nburn,] = g_inv(ztilde)
 
       # Posterior samples of location-scale parameters:
@@ -424,7 +475,35 @@ sebart = function(y, X, X_test = X,
       post_g[nsi - nburn,] = (g(y0) - mu)/sigma_epsilon
     }
 
-    if(verbose) computeTimeRemaining(nsi, timer0, nsave + nburn)
+    if(verbose) SeBR:::computeTimeRemaining(nsi, timer0, nsave + nburn)
+  }
+
+  #----------------------------------------------------------------------------
+  # Variable selection: compute importance scores and select variables
+  if(var_select) {
+    # Compute variable importance scores (normalized usage counts)
+    total_usage = sum(var_usage_count)
+    if(total_usage > 0) {
+      var_importance_scores = var_usage_count / total_usage
+    } else {
+      var_importance_scores = rep(1/p, p)  # Equal importance if no usage tracked
+    }
+    
+    # Select variables above threshold
+    selected_vars = which(var_importance_scores > var_select_threshold)
+    
+    # Ensure at least one variable is selected
+    if(length(selected_vars) == 0) {
+      selected_vars = which.max(var_importance_scores)
+    }
+    
+    if(verbose) {
+      cat("\nVariable Selection Results:\n")
+      cat("  Threshold:", var_select_threshold, "\n")
+      cat("  Selected variables:", length(selected_vars), "of", p, "\n")
+      cat("  Variable indices:", paste(selected_vars, collapse = ", "), "\n")
+      cat("  Importance scores:", paste(round(var_importance_scores, 4), collapse = ", "), "\n")
+    }
   }
 
   # Summarize computing time:
@@ -447,8 +526,16 @@ sebart = function(y, X, X_test = X,
     fixedX = fixedX, approx_g = approx_g,
     pilot_method = pilot_method,
     ntree = ntree,
-    n.threads = n.threads, seed = seed
+    n.threads = n.threads, seed = seed,
+    var_select = var_select
   )
+  
+  # Add variable selection results if enabled
+  if(var_select) {
+    result_list$var_importance_scores = var_importance_scores
+    result_list$selected_vars = selected_vars
+    result_list$var_select_threshold = var_select_threshold
+  }
   
   # Add method-specific parameters to return list
   if(pilot_method == "bart") {
