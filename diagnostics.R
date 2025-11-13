@@ -497,7 +497,7 @@ print_var_selection_summary <- function(sebart_fit) {
 #' @param n_train Number of training observations
 #' @param n_test Number of test observations
 #' @param p Number of predictors
-demo_all_sebart_diagnostics <- function(scenario = "box_cox", n_train = 200, n_test = 500, p = 10, var_select = TRUE) {
+demo_all_sebart_diagnostics <- function(scenario = "box_cox", n_train = 200, n_test = 500, p = 10, var_select = FALSE) {
   
   cat("Generating data for scenario:", scenario, "\n")
   
@@ -527,7 +527,7 @@ demo_all_sebart_diagnostics <- function(scenario = "box_cox", n_train = 200, n_t
   
   sebart_fit <- sebart(y = y_train, X = X_train, X_test = X_test, 
                      ntree = ntree_demo, nsave = nsave_demo, nburn = nburn_demo, 
-                     var_select = TRUE, var_select_threshold = 0.2,
+                     var_select = var_select, var_select_threshold = 0.2,
                      verbose = FALSE)
   
   cat("Creating all diagnostic plots...\n")
@@ -547,5 +547,5 @@ demo_all_sebart_diagnostics <- function(scenario = "box_cox", n_train = 200, n_t
 
 # Example usage
 if (interactive()) {
-  results <- demo_all_sebart_diagnostics('arctangent')
+  results <- demo_all_sebart_diagnostics('beta')
 }

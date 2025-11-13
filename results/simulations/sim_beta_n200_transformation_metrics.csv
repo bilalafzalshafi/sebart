@@ -1,0 +1,2 @@
+"Scenario","Iteration","N_train","ISE_raw_mean","ISE_raw_expected","Mu_mean","Sigma_mean"
+"beta",1,200,0.224764920927443,0.241238836475253,0.0606273085460533,0.309623826850748
