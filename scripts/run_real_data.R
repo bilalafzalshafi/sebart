@@ -68,7 +68,10 @@ run_real_data_main <- function(args = commandArgs(trailingOnly = TRUE)) {
     alpha = "0.1",
     outdir = file.path(root_dir, "results", "real_data"),
     verbose = "TRUE",
-    ppc = "TRUE"
+    ppc = "TRUE",
+    ppc_models = "sebart,bart",
+    train_folds = "",
+    test_folds = ""
   )
 
   parsed <- parse_args(args)
@@ -83,6 +86,14 @@ run_real_data_main <- function(args = commandArgs(trailingOnly = TRUE)) {
   outdir <- normalizePath(opts$outdir, mustWork = FALSE)
   verbose <- as_bool(opts$verbose)
   make_ppc <- as_bool(opts$ppc)
+  ppc_models <- trimws(strsplit(opts$ppc_models, ",")[[1]])
+  train_folds <- trimws(opts$train_folds)
+  test_folds <- trimws(opts$test_folds)
+  custom_split <- list(train_folds = train_folds, test_folds = test_folds)
+  custom_split <- lapply(custom_split, function(x) {
+    if (!nzchar(x)) return(NULL)
+    as.integer(strsplit(x, ",")[[1]])
+  })
 
   dir.create(outdir, recursive = TRUE, showWarnings = FALSE)
 
@@ -93,7 +104,9 @@ run_real_data_main <- function(args = commandArgs(trailingOnly = TRUE)) {
     repeats = repeats,
     seed = seed,
     alpha = alpha,
-    verbose = verbose
+    verbose = verbose,
+    ppc_models = ppc_models,
+    custom_split = custom_split
   )
 
   label <- paste0("real_", paste(vapply(dataset_targets, function(dt) paste(dt$dataset, dt$target, sep = "-"), character(1)), collapse = "_"))
@@ -133,24 +146,26 @@ run_real_data_main <- function(args = commandArgs(trailingOnly = TRUE)) {
     write.csv(study$observed, file.path(outdir, paste0(label, "_observed.csv")), row.names = FALSE)
   }
 
-  if (make_ppc && !is.null(study$posterior_samples) && !is.null(study$observed)) {
+  if (make_ppc && !is.null(study$ppc_ecdf_curves)) {
     ensure_packages("ggplot2")
-    combos <- unique(study$posterior_samples[, c("Dataset", "Target")])
-    apply(combos, 1, function(row) {
-      dataset <- row[["Dataset"]]
-      target <- row[["Target"]]
-      ecdf_plot <- plot_ecdf_ppc(study$posterior_samples, study$observed, dataset, target)
-      if (!is.null(ecdf_plot)) {
-        out_file <- file.path(outdir, paste0(label, "_posterior_ecdf_", dataset, "_", target, ".png"))
-        ggplot2::ggsave(out_file, ecdf_plot, width = 8, height = 6, dpi = 300, bg = "white")
+    target_models <- intersect(ppc_models, models)
+    if (length(target_models)) {
+      for (dataset_name in names(study$ppc_ecdf_curves)) {
+        target_list <- study$ppc_ecdf_curves[[dataset_name]]
+        for (target in names(target_list)) {
+          curve_models <- target_list[[target]]
+          for (model_name in target_models) {
+            curve_obj <- curve_models[[model_name]]
+            if (is.null(curve_obj)) next
+            plt <- plot_ppc_ecdf_draws(curve_obj, dataset_name, target, model_name)
+            if (is.null(plt)) next
+            file_name <- sprintf("%s_ppc_ecdf_%s_%s_%s.png", label, model_name, dataset_name, target)
+            out_file <- file.path(outdir, file_name)
+            ggplot2::ggsave(out_file, plt, width = 7.5, height = 5.5, dpi = 300, bg = "white")
+          }
+        }
       }
-      density_plot <- plot_density_ppc(study$posterior_samples, study$observed, dataset, target)
-      if (!is.null(density_plot)) {
-        out_file <- file.path(outdir, paste0(label, "_posterior_density_", dataset, "_", target, ".png"))
-        ggplot2::ggsave(out_file, density_plot, width = 8, height = 5, dpi = 300, bg = "white")
-      }
-      NULL
-    })
+    }
   }
 
   if (verbose) {

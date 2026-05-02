@@ -52,7 +52,7 @@ run_simulations_main <- function(args = commandArgs(trailingOnly = TRUE)) {
     n_train = "200",
     n_test = "1000",
     p = "10",
-    models = "sebart,bart,bart_bc,sblm",
+    models = "sebart,bart,bart_bc,sblm,drbart",
     seed = "202401",
     predictor = "gaussian",
     alpha = "0.1",

@@ -46,7 +46,10 @@ main <- function() {
     scenarios = "sigmoid,beta,arctangent,box_cox",
     n_train = "200",
     outdir = file.path(root_dir, "results", "simulations"),
-    prefix = "sim_interval"
+    prefix = "sim_interval",
+    levels = "80,90,95",
+    interval_types = "Q,HPD",
+    allowed_models = "sebart,drbart,bart,bart_bc,sblm"
   )
 
   args <- modifyList(defaults, parse_args(commandArgs(trailingOnly = TRUE)))
@@ -61,13 +64,19 @@ main <- function() {
   outdir <- normalizePath(args$outdir, mustWork = FALSE)
   dir.create(outdir, recursive = TRUE, showWarnings = FALSE)
   prefix <- args$prefix %||% "sim_interval"
+  level_vec <- trimws(strsplit(args$levels, ",")[[1]])
+  interval_vec <- trimws(strsplit(args$interval_types, ",")[[1]])
+  model_vec <- trimws(strsplit(args$allowed_models, ",")[[1]])
 
   saved <- save_interval_widths_by_scenario(
     metrics_df = metrics_df,
     outdir = outdir,
     prefix = prefix,
     scenarios = scenario_vec,
-    n_train = n_target
+    n_train = n_target,
+    levels = level_vec,
+    interval_types = interval_vec,
+    allowed_models = model_vec
   )
 
   if (length(saved)) {

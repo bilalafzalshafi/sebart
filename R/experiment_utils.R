@@ -98,6 +98,15 @@ compute_transformation_diagnostics <- function(draws, truth, y_grid,
   result
 }
 
+.clean_column_names <- function(nms) {
+  cleaned <- trimws(nms)
+  cleaned <- gsub("[^A-Za-z0-9]+", "_", cleaned)
+  cleaned <- gsub("_+", "_", cleaned)
+  cleaned <- gsub("^_+|_+$", "", cleaned)
+  cleaned[cleaned == ""] <- "var"
+  make.unique(tolower(cleaned), sep = "_")
+}
+
 # -------------------- Simulation utilities --------------------
 
 simulate_sebart_data <- function(n_train = 200, n_test = 1000, p = 10,
@@ -152,6 +161,14 @@ simulate_sebart_data <- function(n_train = 200, n_test = 1000, p = 10,
 }
 
 get_transformation <- function(scenario) {
+  box_cox_transformation <- function(lambda, description) {
+    list(
+      g = function(y) SeBR:::g_bc(y, lambda = lambda),
+      g_inv = function(z) SeBR:::g_inv_bc(z, lambda = lambda),
+      description = description
+    )
+  }
+
   transformations <- list(
     step = list(
       g = function(y) y,
@@ -183,10 +200,22 @@ get_transformation <- function(scenario) {
       g_inv = function(z) 100 * atan(z / 5),
       description = "Arctangent transformation, smooth bounded"
     ),
-    box_cox = list(
-      g = function(y) SeBR:::g_bc(y, lambda = 0.5),
-      g_inv = function(z) SeBR:::g_inv_bc(z, lambda = 0.5),
+    box_cox_log = box_cox_transformation(
+      lambda = 0,
+      description = "Inverse Box-Cox log transformation"
+    ),
+    box_cox_sqrt = box_cox_transformation(
+      lambda = 0.5,
       description = "Inverse Box-Cox square root transformation"
+    ),
+    box_cox = box_cox_transformation(
+      lambda = 0.5,
+      description = "Inverse Box-Cox square root transformation"
+    ),
+    identity = list(
+      g = function(y) y,
+      g_inv = function(z) z,
+      description = "Identity transformation (no warping)"
     ),
     almost_linear = list(
       g = function(y) (-1 + sqrt(1 + 0.4 * y)) / 0.2,
@@ -215,7 +244,18 @@ get_transformation <- function(scenario) {
 }
 
 get_available_scenarios <- function() {
-  c("sigmoid", "beta", "arctangent", "box_cox", "almost_linear", "polynomial", "step")
+  c(
+    "sigmoid",
+    "beta",
+    "arctangent",
+    "box_cox",
+    "box_cox_sqrt",
+    "box_cox_log",
+    "identity",
+    "almost_linear",
+    "polynomial",
+    "step"
+  )
 }
 
 fit_models <- function(y_train, X_train, X_test, models = c("sebart", "bart", "bart_bc", "sblm"),
@@ -288,10 +328,22 @@ fit_models <- function(y_train, X_train, X_test, models = c("sebart", "bart", "b
               )
             },
             sblm = {
+              # sblm() requires a positive-definite X'X. Some real datasets
+              # (e.g., energy) contain exact linear dependencies, so drop
+              # aliased columns via QR pivoting before fitting.
+              X_train_sblm <- as.matrix(X_train)
+              X_test_sblm <- as.matrix(X_test)
+              qr_x <- qr(X_train_sblm)
+              rank_x <- qr_x$rank
+              if (is.finite(rank_x) && rank_x > 0 && rank_x < ncol(X_train_sblm)) {
+                keep_cols <- sort(qr_x$pivot[seq_len(rank_x)])
+                X_train_sblm <- X_train_sblm[, keep_cols, drop = FALSE]
+                X_test_sblm <- X_test_sblm[, keep_cols, drop = FALSE]
+              }
               SeBR::sblm(
                 y = y_train,
-                X = X_train,
-                X_test = X_test,
+                X = X_train_sblm,
+                X_test = X_test_sblm,
                 verbose = FALSE
               )
             },
@@ -334,7 +386,7 @@ fit_models <- function(y_train, X_train, X_test, models = c("sebart", "bart", "b
         NULL
       }
     )
-    fits[[model_name]] <- fit
+    fits[model_name] <- list(fit)
   }
   fits
 }
@@ -342,73 +394,40 @@ fit_models <- function(y_train, X_train, X_test, models = c("sebart", "bart", "b
 fit_drbart <- function(y, X, X_test,
                        nburn = 1000, nsim = 1000, nthin = 1,
                        m_mean = 200, m_var = 100,
-                       variance = c("ux", "x", "const")) {
+                       variance = c("ux", "x", "const"),
+                       adapter_options = list()) {
   variance <- match.arg(variance)
-  X <- as.matrix(X)
-  X_test <- as.matrix(X_test)
 
-  mean_file <- tempfile("drbart_mean_", fileext = ".txt")
-  prec_file <- tempfile("drbart_prec_", fileext = ".txt")
-  on.exit(unlink(c(mean_file, prec_file)), add = TRUE)
-
-  fit <- drbart::drbart(
-    y = y,
-    x = X,
-    nburn = nburn,
-    nsim = nsim,
-    nthin = nthin,
-    m_mean = m_mean,
-    m_var = m_var,
-    variance = variance,
-    mean_file = mean_file,
-    prec_file = prec_file
-  )
-
-  compute_posterior_means <- function(fit_object, new_x) {
-    ts_mean <- drbart:::TreeSamples$new()
-    ts_mean$load(mean_file)
-
-    fit_internal <- fit_object$fit
-    nsim_local <- length(fit_internal$ucuts)
-    if (nsim_local == 0) {
-      stop("No posterior samples available from drbart fit")
+  if (!exists("drbart_adapter", mode = "function")) {
+    adapter_path <- file.path(.sebart_get_project_root(), "R", "drbart_adapter.R")
+    if (file.exists(adapter_path)) {
+      source(adapter_path)
     }
-
-    logprobs <- lapply(fit_internal$ucuts, function(u) log(diff(c(0, u, 1))))
-    mids <- lapply(fit_internal$ucuts, function(u) c(0, u) + diff(c(0, u, 1)) / 2)
-
-    n_test <- nrow(new_x)
-    posterior_means <- matrix(NA_real_, n_test, nsim_local)
-
-    for (j in seq_len(n_test)) {
-      row_values <- as.list(new_x[j, ])
-      des <- lapply(mids, function(m) do.call(data.frame, c(list(m), row_values)))
-
-      for (i in seq_len(nsim_local)) {
-        mu_vec <- c(ts_mean$predict_i(t(des[[i]]), i - 1))
-        weights <- exp(logprobs[[i]])
-        posterior_means[j, i] <- sum(weights * mu_vec)
-      }
-    }
-
-    posterior_means
+  }
+  if (!exists("drbart_adapter", mode = "function")) {
+    stop("drbart_adapter() is not available. Ensure R/drbart_adapter.R is present and loaded.",
+         call. = FALSE)
   }
 
-  posterior_means <- tryCatch(
-    compute_posterior_means(fit, X_test),
-    error = function(e) {
-      warning("drbart prediction failed: ", conditionMessage(e))
-      matrix(NA_real_, nrow(X_test), 1)
-    }
+  adapter_opts <- modifyList(
+    list(
+      mcmc = list(
+        nburn = nburn,
+        nsim = nsim,
+        nthin = nthin,
+        m_mean = m_mean,
+        m_var = m_var,
+        variance = variance
+      )
+    ),
+    adapter_options
   )
 
-  fitted_mean <- rowMeans(posterior_means, na.rm = TRUE)
-  fitted_mean[is.nan(fitted_mean)] <- NA_real_
-
-  list(
-    fitted.values = fitted_mean,
-    post_ypred = NULL,
-    model = "drbart"
+  drbart_adapter(
+    y_train = y,
+    X_train = X,
+    X_test = X_test,
+    options = adapter_opts
   )
 }
 
@@ -425,62 +444,100 @@ calc_interval_stats <- function(draws, y_true, alpha = 0.1) {
   list(coverage = coverage, width = width)
 }
 
-calc_interval_stats_levels <- function(draws, y_true, levels = c(0.8, 0.9, 0.95)) {
-  if (is.null(draws)) {
-    return(data.frame(
-      Level = levels,
-      Coverage = NA_real_,
-      Width = NA_real_,
-      stringsAsFactors = FALSE
-    ))
+calc_interval_stats_levels <- function(draws, y_true, levels = c(0.8, 0.9, 0.95),
+                                       quantile_preds = NULL, quantile_probs = NULL) {
+  if (!is.null(draws)) {
+    res <- lapply(levels, function(level) {
+      alpha <- 1 - level
+      lower <- apply(draws, 2, quantile, alpha / 2, na.rm = TRUE)
+      upper <- apply(draws, 2, quantile, 1 - alpha / 2, na.rm = TRUE)
+      data.frame(Level = level,
+                 Coverage = mean(y_true >= lower & y_true <= upper, na.rm = TRUE),
+                 Width = mean(upper - lower, na.rm = TRUE),
+                 stringsAsFactors = FALSE)
+    })
+    return(do.call(rbind, res))
   }
 
-  res <- lapply(levels, function(level) {
-    alpha <- 1 - level
-    lower <- apply(draws, 2, quantile, alpha / 2, na.rm = TRUE)
-    upper <- apply(draws, 2, quantile, 1 - alpha / 2, na.rm = TRUE)
-    data.frame(
-      Level = level,
-      Coverage = mean(y_true >= lower & y_true <= upper, na.rm = TRUE),
-      Width = mean(upper - lower, na.rm = TRUE),
-      stringsAsFactors = FALSE
-    )
-  })
-  do.call(rbind, res)
+  if (!is.null(quantile_preds) && !is.null(quantile_probs)) {
+    preds_array <- quantile_preds
+    q_dims <- dim(preds_array)
+    if (is.null(q_dims) || length(q_dims) < 2) {
+      return(data.frame(
+        Level = levels,
+        Coverage = NA_real_,
+        Width = NA_real_,
+        stringsAsFactors = FALSE
+      ))
+    }
+    has_draw_dim <- length(q_dims) >= 3
+    get_quantile_values <- function(idx) {
+      if (has_draw_dim) {
+        vals <- preds_array[, idx, , drop = FALSE]
+        apply(vals, 1, mean, na.rm = TRUE)
+      } else {
+        as.numeric(preds_array[, idx, drop = TRUE])
+      }
+    }
+
+    res <- lapply(levels, function(level) {
+      alpha <- 1 - level
+      lower_prob <- alpha / 2
+      upper_prob <- 1 - alpha / 2
+      lower_idx <- match(lower_prob, quantile_probs)
+      upper_idx <- match(upper_prob, quantile_probs)
+      if (anyNA(c(lower_idx, upper_idx))) {
+        return(data.frame(Level = level, Coverage = NA_real_, Width = NA_real_, stringsAsFactors = FALSE))
+      }
+      lower_vals <- get_quantile_values(lower_idx)
+      upper_vals <- get_quantile_values(upper_idx)
+      data.frame(Level = level,
+                 Coverage = mean(y_true >= lower_vals & y_true <= upper_vals, na.rm = TRUE),
+                 Width = mean(upper_vals - lower_vals, na.rm = TRUE),
+                 stringsAsFactors = FALSE)
+    })
+    return(do.call(rbind, res))
+  }
+
+  data.frame(
+    Level = levels,
+    Coverage = NA_real_,
+    Width = NA_real_,
+    stringsAsFactors = FALSE
+  )
 }
 
 calc_hpd_stats_levels <- function(draws, y_true, levels = c(0.8, 0.9, 0.95)) {
-  if (is.null(draws)) {
-    return(data.frame(
-      Level = levels,
-      Coverage = NA_real_,
-      Width = NA_real_,
-      stringsAsFactors = FALSE
-    ))
+  if (!is.null(draws)) {
+    ensure_packages("coda")
+    res <- lapply(levels, function(level) {
+      intervals <- t(vapply(seq_len(ncol(draws)), function(j) {
+        sample_vec <- draws[, j]
+        if (all(is.na(sample_vec))) {
+          c(NA_real_, NA_real_)
+        } else {
+          hpd <- coda::HPDinterval(coda::mcmc(sample_vec), prob = level)
+          c(hpd[1], hpd[2])
+        }
+      }, numeric(2)))
+      lower <- intervals[, 1]
+      upper <- intervals[, 2]
+      data.frame(
+        Level = level,
+        Coverage = mean(y_true >= lower & y_true <= upper, na.rm = TRUE),
+        Width = mean(upper - lower, na.rm = TRUE),
+        stringsAsFactors = FALSE
+      )
+    })
+    return(do.call(rbind, res))
   }
 
-  ensure_packages("coda")
-  res <- lapply(levels, function(level) {
-    alpha <- 1 - level
-    intervals <- t(vapply(seq_len(ncol(draws)), function(j) {
-      sample_vec <- draws[, j]
-      if (all(is.na(sample_vec))) {
-        c(NA_real_, NA_real_)
-      } else {
-        hpd <- coda::HPDinterval(coda::mcmc(sample_vec), prob = level)
-        c(hpd[1], hpd[2])
-      }
-    }, numeric(2)))
-    lower <- intervals[, 1]
-    upper <- intervals[, 2]
-    data.frame(
-      Level = level,
-      Coverage = mean(y_true >= lower & y_true <= upper, na.rm = TRUE),
-      Width = mean(upper - lower, na.rm = TRUE),
-      stringsAsFactors = FALSE
-    )
-  })
-  do.call(rbind, res)
+  data.frame(
+    Level = levels,
+    Coverage = NA_real_,
+    Width = NA_real_,
+    stringsAsFactors = FALSE
+  )
 }
 
 crps_empirical <- function(samples, obs) {
@@ -536,9 +593,22 @@ evaluate_model <- function(fit_object, y_test, model_name, alpha = 0.1) {
   levels <- c(0.8, 0.9, 0.95)
   level_labels <- sprintf("%02d", levels * 100)
 
-  interval_q <- calc_interval_stats_levels(fit_object$post_ypred, y_test, levels)
-  interval_hpd <- calc_hpd_stats_levels(fit_object$post_ypred, y_test, levels)
-  crps_vals <- compute_crps_vector(fit_object$post_ypred, y_test)
+  interval_q <- calc_interval_stats_levels(
+    draws = fit_object$post_ypred,
+    y_true = y_test,
+    levels = levels,
+    quantile_preds = fit_object$quantile_predictions,
+    quantile_probs = fit_object$quantile_probs
+  )
+  interval_hpd <- calc_hpd_stats_levels(
+    draws = fit_object$post_ypred,
+    y_true = y_test,
+    levels = levels
+  )
+  crps_vals <- compute_crps_vector(
+    draws = fit_object$post_ypred,
+    y_true = y_test
+  )
 
   df <- data.frame(
     Model = model_name,
@@ -714,7 +784,7 @@ save_interval_widths_by_scenario <- function(metrics_df, outdir, prefix,
                                              n_train = NULL,
                                              levels = c("80", "90", "95"),
                                              interval_types = c("Q", "HPD"),
-                                             allowed_models = c("sebart", "bart", "bart_bc", "sblm")) {
+                                             allowed_models = c("sebart", "bart", "bart_bc", "sblm", "drbart")) {
   ensure_packages(c("ggplot2", "dplyr", "tidyr"))
   if (is.null(metrics_df) || !nrow(metrics_df)) return(character())
 
@@ -736,15 +806,17 @@ save_interval_widths_by_scenario <- function(metrics_df, outdir, prefix,
 
   df <- df[!is.na(df$Model) & nzchar(df$Model), , drop = FALSE]
   scenario_order <- unique(df$Scenario)
-  model_levels <- intersect(allowed_models, unique(df$Model))
-  type_labels <- c(Q = "Equal-tail", HPD = "HPD")
+  ordered_models <- c("sblm", "bart_bc", "bart", "drbart", "sebart")
+  model_levels <- rev(ordered_models[ordered_models %in% unique(df$Model)])
+  type_labels <- c(Q = "Q", HPD = "HPD")
   fill_values <- c(
     sebart = "#1d4ed8",
+    drbart = "#dc2626",
     bart = "#9333ea",
     bart_bc = "#059669",
     sblm = "#f97316"
   )
-  fill_values <- fill_values[names(fill_values) %in% model_levels]
+  fill_values <- fill_values[match(model_levels, names(fill_values))]
 
   saved <- character()
 
@@ -767,9 +839,10 @@ save_interval_widths_by_scenario <- function(metrics_df, outdir, prefix,
     long_width <- long_width[long_width$Type %in% type_levels & long_width$Level %in% level_levels, , drop = FALSE]
     if (!nrow(long_width)) next
 
-    long_width$Type_Label <- type_labels[long_width$Type]
+    long_width$Type_Label <- long_width$Type
     long_width$Level_Label <- paste0(long_width$Level, "%")
     long_width$Model <- factor(long_width$Model, levels = model_levels)
+    long_width <- droplevels(long_width)
 
     scenario_title <- tools::toTitleCase(scenario)
 
@@ -783,9 +856,10 @@ save_interval_widths_by_scenario <- function(metrics_df, outdir, prefix,
       values_drop_na = TRUE
     )
     coverage_long <- coverage_long[coverage_long$Type %in% type_levels & coverage_long$Level %in% level_levels, , drop = FALSE]
-    coverage_long$Type_Label <- type_labels[coverage_long$Type]
+    coverage_long$Type_Label <- coverage_long$Type
     coverage_long$Level_Label <- paste0(coverage_long$Level, "%")
     coverage_long$Model <- factor(coverage_long$Model, levels = model_levels)
+    coverage_long <- droplevels(coverage_long)
 
     coverage_ann <- dplyr::summarise(
       dplyr::group_by(coverage_long, Model, Type_Label, Level_Label),
@@ -802,28 +876,37 @@ save_interval_widths_by_scenario <- function(metrics_df, outdir, prefix,
     coverage_ann$Label <- sprintf("%s%%", round(coverage_ann$Coverage * 100))
     coverage_ann$MaxWidth <- ifelse(is.finite(coverage_ann$MaxWidth), coverage_ann$MaxWidth, NA_real_)
 
-    plot_obj <- ggplot2::ggplot(long_width, ggplot2::aes(x = Width, y = Model, fill = Model)) +
-      ggplot2::geom_boxplot(alpha = 0.35, outlier.size = 0.8, linewidth = 0.3) +
-      ggplot2::facet_grid(Type_Label ~ Level_Label, scales = "free_x") +
-      ggplot2::scale_fill_manual(values = fill_values, drop = FALSE) +
+    facet_layer <- if (length(unique(long_width$Type_Label)) > 1) {
+      ggplot2::facet_grid(Type_Label ~ Level_Label, scales = "free_x")
+    } else {
+      ggplot2::facet_grid(~Level_Label, scales = "free_x")
+    }
+
+   plot_obj <- ggplot2::ggplot(long_width, ggplot2::aes(x = Width, y = Model, fill = Model)) +
+      ggplot2::geom_boxplot(alpha = 0.35, outlier.size = 0.8, linewidth = 0.3, show.legend = FALSE) +
+      facet_layer +
+      ggplot2::scale_fill_manual(values = fill_values, drop = FALSE, guide = "none") +
       ggplot2::geom_text(
         data = coverage_ann,
         ggplot2::aes(x = MaxWidth, y = Model, label = Label),
         colour = "#1d4ed8",
         hjust = -0.15,
-        size = 2.8
+        size = 5.8
       ) +
       ggplot2::labs(
-        title = sprintf("Interval widths: %s (n=%s)", scenario_title, paste(unique(scenario_df$N_train), collapse = ",")),
+        title = sprintf("%s (n=%s)", scenario_title, paste(unique(scenario_df$N_train), collapse = ",")),
         x = "Interval width",
         y = NULL,
-        fill = "Model"
+        fill = NULL
       ) +
-      ggplot2::theme_bw(base_size = 11) +
+      ggplot2::theme_bw(base_size = 18) +
       ggplot2::theme(
         strip.background = ggplot2::element_rect(fill = "white", colour = "grey70"),
-        strip.text = ggplot2::element_text(face = "bold"),
-        legend.position = "bottom"
+        strip.text = ggplot2::element_text(face = "bold", size = 18),
+        legend.position = "none",
+        plot.title = ggplot2::element_text(size = 24, face = "bold"),
+        axis.text.y = ggplot2::element_text(size = 18, face = "bold"),
+        axis.text.x = ggplot2::element_text(size = 18)
       ) +
       ggplot2::scale_x_continuous(expand = ggplot2::expansion(mult = c(0.02, 0.20)))
 
@@ -839,7 +922,7 @@ save_interval_widths_by_dataset <- function(metrics_df, outdir, prefix,
                                             datasets = NULL,
                                             levels = c("80", "90", "95"),
                                             interval_types = c("Q", "HPD"),
-                                            allowed_models = c("sebart", "bart", "bart_bc", "sblm")) {
+                                            allowed_models = c("sebart", "bart", "bart_bc", "sblm", "drbart")) {
   ensure_packages(c("ggplot2", "dplyr", "tidyr"))
   if (is.null(metrics_df) || !nrow(metrics_df)) return(character())
 
@@ -856,21 +939,29 @@ save_interval_widths_by_dataset <- function(metrics_df, outdir, prefix,
   level_levels <- intersect(levels, c("80", "90", "95"))
   if (!length(type_levels) || !length(level_levels)) return(character())
 
-  dataset_order <- unique(df$Dataset)
-  model_levels <- intersect(allowed_models, unique(df$Model))
-  type_labels <- c(Q = "Equal-tail", HPD = "HPD")
+  df$Facet <- if (!is.null(df$Target) && any(nzchar(df$Target))) {
+    paste(df$Dataset, df$Target, sep = " :: ")
+  } else {
+    df$Dataset
+  }
+  dataset_order <- unique(df$Facet)
+  model_levels <- allowed_models[allowed_models %in% unique(df$Model)]
+  type_labels <- c(Q = "Q", HPD = "HPD")
   fill_values <- c(
     sebart = "#1d4ed8",
+    drbart = "#dc2626",
     bart = "#9333ea",
     bart_bc = "#059669",
     sblm = "#f97316"
   )
-  fill_values <- fill_values[names(fill_values) %in% model_levels]
+  fill_values <- fill_values[match(model_levels, names(fill_values))]
 
   saved <- character()
 
-  for (dataset in dataset_order) {
-    data_df <- df[df$Dataset == dataset, , drop = FALSE]
+  for (facet_name in dataset_order) {
+    if (!nzchar(facet_name)) next
+    select_mask <- df$Facet == facet_name
+    data_df <- df[select_mask, , drop = FALSE]
     if (!nrow(data_df)) next
 
     width_cols = grep("^Width_(Q|HPD)_", names(data_df), value = TRUE)
@@ -888,9 +979,10 @@ save_interval_widths_by_dataset <- function(metrics_df, outdir, prefix,
     long_width <- long_width[long_width$Type %in% type_levels & long_width$Level %in% level_levels, , drop = FALSE]
     if (!nrow(long_width)) next
 
-    long_width$Type_Label <- type_labels[long_width$Type]
+    long_width$Type_Label <- long_width$Type
     long_width$Level_Label <- paste0(long_width$Level, "%")
     long_width$Model <- factor(long_width$Model, levels = model_levels)
+    long_width <- droplevels(long_width)
 
     coverage_cols <- grep("^Coverage_(Q|HPD)_", names(data_df), value = TRUE)
     coverage_long <- tidyr::pivot_longer(
@@ -903,9 +995,10 @@ save_interval_widths_by_dataset <- function(metrics_df, outdir, prefix,
     )
 
     coverage_long <- coverage_long[coverage_long$Type %in% type_levels & coverage_long$Level %in% level_levels, , drop = FALSE]
-    coverage_long$Type_Label <- type_labels[coverage_long$Type]
+    coverage_long$Type_Label <- coverage_long$Type
     coverage_long$Level_Label <- paste0(coverage_long$Level, "%")
     coverage_long$Model <- factor(coverage_long$Model, levels = model_levels)
+    coverage_long <- droplevels(coverage_long)
 
     coverage_ann <- dplyr::summarise(
       dplyr::group_by(coverage_long, Model, Type_Label, Level_Label),
@@ -922,32 +1015,42 @@ save_interval_widths_by_dataset <- function(metrics_df, outdir, prefix,
     coverage_ann$Label <- sprintf("%s%%", round(coverage_ann$Coverage * 100))
     coverage_ann$MaxWidth <- ifelse(is.finite(coverage_ann$MaxWidth), coverage_ann$MaxWidth, NA_real_)
 
+    facet_layer <- if (length(unique(long_width$Type_Label)) > 1) {
+      ggplot2::facet_grid(Type_Label ~ Level_Label, scales = "free_x")
+    } else {
+      ggplot2::facet_grid(~Level_Label, scales = "free_x")
+    }
+
     plot_obj <- ggplot2::ggplot(long_width, ggplot2::aes(x = Width, y = Model, fill = Model)) +
-      ggplot2::geom_boxplot(alpha = 0.35, outlier.size = 0.8, linewidth = 0.3) +
-      ggplot2::facet_grid(Type_Label ~ Level_Label, scales = "free_x") +
-      ggplot2::scale_fill_manual(values = fill_values, drop = FALSE) +
+      ggplot2::geom_boxplot(alpha = 0.35, outlier.size = 0.8, linewidth = 0.3, show.legend = FALSE) +
+      facet_layer +
+      ggplot2::scale_fill_manual(values = fill_values, drop = FALSE, guide = "none") +
       ggplot2::geom_text(
         data = coverage_ann,
         ggplot2::aes(x = MaxWidth, y = Model, label = Label),
         colour = "#1d4ed8",
         hjust = -0.15,
-        size = 2.8
+        size = 6.0
       ) +
       ggplot2::labs(
-        title = sprintf("Interval widths: %s", tools::toTitleCase(dataset)),
+        title = sprintf("%s", tools::toTitleCase(facet_name)),
         x = "Interval width",
         y = NULL,
-        fill = "Model"
+        fill = NULL
       ) +
-      ggplot2::theme_bw(base_size = 11) +
+      ggplot2::theme_bw(base_size = 16) +
       ggplot2::theme(
         strip.background = ggplot2::element_rect(fill = "white", colour = "grey70"),
-        strip.text = ggplot2::element_text(face = "bold"),
-        legend.position = "bottom"
+        strip.text = ggplot2::element_text(face = "bold", size = 16),
+        legend.position = "none",
+        plot.title = ggplot2::element_text(size = 20, face = "bold"),
+        axis.text.y = ggplot2::element_text(size = 16, face = "bold"),
+        axis.text.x = ggplot2::element_text(size = 16)
       ) +
       ggplot2::scale_x_continuous(expand = ggplot2::expansion(mult = c(0.02, 0.20)))
 
-    outfile <- file.path(outdir, sprintf("%s_%s_interval_widths.png", prefix, dataset))
+    clean_name <- gsub("[^A-Za-z0-9]+", "_", facet_name)
+    outfile <- file.path(outdir, sprintf("%s_%s_interval_widths.png", prefix, clean_name))
     ggplot2::ggsave(outfile, plot_obj, width = 8, height = 4.5, dpi = 300, bg = "white")
     saved <- c(saved, outfile)
   }
@@ -1120,48 +1223,180 @@ run_simulation_study <- function(scenarios,
 # -------------------- Real data utilities --------------------
 
 get_available_real_datasets <- function() {
-  c("forestfires", "bikesharing", "parkinsons")
+  c(
+    "forestfires",
+    "bikesharing",
+    "parkinsons",
+    "energy",
+    "concrete",
+    "real_estate",
+    "online_news",
+    "facebook_metrics",
+    "power_consumption",
+    "stocks",
+    "productivity",
+    "math",
+    "portuguese"
+  )
 }
 
 get_target_features <- function(dataset_name) {
+  dataset_name <- match.arg(dataset_name, get_available_real_datasets())
   switch(
     dataset_name,
     forestfires = c("area"),
     bikesharing = c("hum", "windspeed"),
     parkinsons = c("NHR", "HNR", "DFA", "motor_UPDRS", "total_UPDRS"),
+    energy = c("heating_load", "cooling_load"),
+    concrete = c("strength"),
+    real_estate = c("price"),
+    online_news = c("shares"),
+    facebook_metrics = c("interactions"),
+    power_consumption = c("zone_1", "zone_2", "zone_3"),
+    stocks = c("total_risk", "systematic_risk", "annual_return"),
+    productivity = c("actual_productivity"),
+    math = c("math_grade"),
+    portuguese = c("portuguese_grade"),
     stop("Unknown dataset: ", dataset_name, call. = FALSE)
   )
 }
 
 load_real_dataset <- function(dataset_name, target_feature,
-                              scale_y = TRUE, scale_X = TRUE) {
+                              scale_y = FALSE, scale_X = TRUE) {
   dataset_name <- match.arg(dataset_name, get_available_real_datasets())
 
-  loader <- switch(
+  dataset_spec <- switch(
     dataset_name,
-    forestfires = function() read.csv(sebart_data_path("forestfires.csv")),
-    bikesharing = function() read.csv(sebart_data_path("hour.csv")),
-    parkinsons = function() read.csv(sebart_data_path("parkinsons_updrs.data"))
+    forestfires = {
+      data <- read.csv(sebart_data_path("forestfires.csv"))
+      list(data = data, target_map = c(area = "area"), drop_cols = c("X", "Y", "month", "day"))
+    },
+    bikesharing = {
+      data <- read.csv(sebart_data_path("hour.csv"))
+      list(
+        data = data,
+        target_map = c(hum = "hum", windspeed = "windspeed"),
+        drop_cols = c("instant", "dteday", "casual", "registered", "cnt")
+      )
+    },
+    parkinsons = {
+      data <- read.csv(sebart_data_path("parkinsons_updrs.data"))
+      data$motor_UPDRS <- data$motor_UPDRS / 100
+      data$total_UPDRS <- data$total_UPDRS / 200
+      list(
+        data = data,
+        target_map = c(NHR = "NHR", HNR = "HNR", DFA = "DFA",
+                       motor_UPDRS = "motor_UPDRS", total_UPDRS = "total_UPDRS"),
+        drop_cols = character()
+      )
+    },
+    energy = {
+      data <- read.csv(sebart_data_path("energy.csv"), stringsAsFactors = FALSE)
+      names(data) <- .clean_column_names(names(data))
+      names(data)[names(data) == "y1"] <- "heating_load"
+      names(data)[names(data) == "y2"] <- "cooling_load"
+      list(
+        data = data,
+        target_map = c(heating_load = "heating_load", cooling_load = "cooling_load"),
+        drop_cols = character()
+      )
+    },
+    concrete = {
+      data <- read.csv(sebart_data_path("concrete.csv"), stringsAsFactors = FALSE)
+      names(data) <- .clean_column_names(names(data))
+      names(data)[names(data) == "concrete_compressive_strength_mpa_megapascals"] <- "strength"
+      list(data = data, target_map = c(strength = "strength"), drop_cols = character())
+    },
+    real_estate = {
+      data <- read.csv(sebart_data_path("valuation.csv"), stringsAsFactors = FALSE)
+      names(data) <- .clean_column_names(names(data))
+      names(data)[names(data) == "y_house_price_of_unit_area"] <- "price"
+      list(data = data, target_map = c(price = "price"), drop_cols = c("no"))
+    },
+    online_news = {
+      data <- read.csv(sebart_data_path("shares.csv"), stringsAsFactors = FALSE)
+      names(data) <- .clean_column_names(names(data))
+      list(data = data, target_map = c(shares = "shares"), drop_cols = c("url"))
+    },
+    facebook_metrics = {
+      data <- read.csv(sebart_data_path("interactions.csv"), sep = ";", stringsAsFactors = FALSE)
+      names(data) <- .clean_column_names(names(data))
+      list(data = data, target_map = c(interactions = "total_interactions"), drop_cols = character())
+    },
+    power_consumption = {
+      data <- read.csv(sebart_data_path("powerconsumption.csv"), stringsAsFactors = FALSE)
+      names(data) <- .clean_column_names(names(data))
+      names(data)[names(data) == "zone_1_power_consumption"] <- "zone_1"
+      names(data)[names(data) == "zone_2_power_consumption"] <- "zone_2"
+      names(data)[names(data) == "zone_3_power_consumption"] <- "zone_3"
+      list(
+        data = data,
+        target_map = c(zone_1 = "zone_1", zone_2 = "zone_2", zone_3 = "zone_3"),
+        drop_cols = c("datetime")
+      )
+    },
+    stocks = {
+      data <- read.csv(sebart_data_path("stock.csv"), stringsAsFactors = FALSE)
+      if (names(data)[1] %in% c("Unnamed: 0", "X") && tolower(trimws(data[1, 1])) == "id") {
+        names(data) <- data[1, ]
+        data <- data[-1, , drop = FALSE]
+      }
+      names(data) <- .clean_column_names(names(data))
+      keep_cols <- !grepl("_\\d+$", names(data)) | names(data) %in% c("annual_return", "systematic_risk", "total_risk")
+      data <- data[, keep_cols, drop = FALSE]
+      data[] <- lapply(data, function(col) {
+        if (is.character(col)) {
+          col <- trimws(gsub("%", "", col, fixed = TRUE))
+        }
+        type.convert(col, as.is = TRUE)
+      })
+      list(
+        data = data,
+        target_map = c(total_risk = "total_risk", systematic_risk = "systematic_risk", annual_return = "annual_return"),
+        drop_cols = c("id")
+      )
+    },
+    productivity = {
+      data <- read.csv(sebart_data_path("productivity.csv"), stringsAsFactors = FALSE)
+      names(data) <- .clean_column_names(names(data))
+      list(data = data, target_map = c(actual_productivity = "actual_productivity"), drop_cols = c("date"))
+    },
+    math = {
+      data <- read.csv(sebart_data_path("math.csv"), sep = ";", stringsAsFactors = FALSE)
+      names(data) <- .clean_column_names(names(data))
+      list(data = data, target_map = c(math_grade = "g3"), drop_cols = character())
+    },
+    portuguese = {
+      data <- read.csv(sebart_data_path("portuguese.csv"), sep = ";", stringsAsFactors = FALSE)
+      names(data) <- .clean_column_names(names(data))
+      list(data = data, target_map = c(portuguese_grade = "g3"), drop_cols = character())
+    },
+    stop("Unknown dataset: ", dataset_name, call. = FALSE)
   )
-  data <- loader()
 
-  if (dataset_name == "parkinsons") {
-    data$motor_UPDRS <- data$motor_UPDRS / 100
-    data$total_UPDRS <- data$total_UPDRS / 200
-  }
+  data <- dataset_spec$data
+  data[] <- lapply(data, function(col) type.convert(col, as.is = TRUE))
+
+  target_map <- dataset_spec$target_map
+  drop_cols <- dataset_spec$drop_cols
 
   if (is.null(target_feature)) {
     target_feature <- get_target_features(dataset_name)[1]
   }
-  if (!target_feature %in% names(data)) {
-    stop("Target feature not found in dataset: ", target_feature, call. = FALSE)
+  if (!target_feature %in% names(target_map)) {
+    stop("Target feature not available for dataset: ", target_feature, call. = FALSE)
   }
 
-  y_raw <- data[[target_feature]]
-  exclude_cols <- unique(c(target_feature, "instant", "dteday", "casual",
-                           "registered", "cnt"))
+  target_column <- target_map[[target_feature]]
+  if (!target_column %in% names(data)) {
+    stop("Target column not found: ", target_column, call. = FALSE)
+  }
+
+  y_raw <- data[[target_column]]
+  exclude_cols <- unique(c(target_column, drop_cols))
   X_raw <- data[, setdiff(names(data), exclude_cols), drop = FALSE]
-  X_raw <- X_raw[, sapply(X_raw, is.numeric), drop = FALSE]
+  numeric_mask <- vapply(X_raw, is.numeric, logical(1))
+  X_raw <- X_raw[, numeric_mask, drop = FALSE]
 
   idx_complete <- complete.cases(X_raw) & !is.na(y_raw)
   y_raw <- y_raw[idx_complete]
@@ -1172,8 +1407,8 @@ load_real_dataset <- function(dataset_name, target_feature,
   y_min <- min(y_raw)
   y_max <- max(y_raw)
 
-  y_proc <- if (scale_y) (y_raw - y_min) / (y_max - y_min) else y_raw
-  X_proc <- if (scale_X) scale(X_raw) else as.matrix(X_raw)
+  y_proc <- if (scale_y && y_max > y_min) (y_raw - y_min) / (y_max - y_min) else y_raw
+  X_proc <- if (scale_X && ncol(X_raw) > 0) scale(X_raw) else as.matrix(X_raw)
 
   list(
     y = as.numeric(y_proc),
@@ -1191,23 +1426,35 @@ load_real_dataset <- function(dataset_name, target_feature,
 }
 
 create_repeated_cv_splits <- function(n, folds = 10, repeats = 10, seed = 202401) {
+  if (folds <= 1) {
+    return(list(list(
+      train = seq_len(n),
+      test = seq_len(n),
+      repeat_id = 1L,
+      fold = 1L
+    )))
+  }
   set.seed(seed)
-  splits <- vector("list", folds * repeats)
-  counter <- 1
+  splits <- list()
   for (rep in seq_len(repeats)) {
     indices <- sample.int(n)
-    fold_ids <- ceiling(seq_along(indices) / ceiling(n / folds))
-    fold_ids <- (fold_ids - 1) %% folds + 1
+    fold_sizes <- rep(floor(n / folds), folds)
+    if (n %% folds) {
+      fold_sizes[seq_len(n %% folds)] <- fold_sizes[seq_len(n %% folds)] + 1
+    }
+    start <- 1
     for (fold in seq_len(folds)) {
-      test_idx <- indices[fold_ids == fold]
-      train_idx <- setdiff(indices, test_idx)
-      splits[[counter]] <- list(
-        train = sort(train_idx),
-        test = sort(test_idx),
+      size <- fold_sizes[fold]
+      if (size == 0) next
+      end <- start + size - 1
+      test_idx <- sort(indices[start:end])
+      start <- end + 1
+      splits[[length(splits) + 1]] <- list(
+        train = setdiff(seq_len(n), test_idx),
+        test = test_idx,
         repeat_id = rep,
         fold = fold
       )
-      counter <- counter + 1
     }
   }
   splits
@@ -1219,7 +1466,10 @@ run_real_data_iteration <- function(dataset, split, models,
                                     ppc_sample_size = 500,
                                     iteration_id = NULL,
                                     total_iterations = NULL,
-                                    verbose_progress = FALSE) {
+                                    verbose_progress = FALSE,
+                                    ppc_models = NULL,
+                                    ppc_max_draws = 200,
+                                    ppc_first_split_only = TRUE) {
   y <- dataset$y
   X <- dataset$X
   train_idx <- split$train
@@ -1270,10 +1520,36 @@ run_real_data_iteration <- function(dataset, split, models,
     }
   }
 
+  ppc_curves <- NULL
+  if (!is.null(ppc_models) && length(ppc_models)) {
+    collect_curves <- !ppc_first_split_only || (split$repeat_id == 1L && split$fold == 1L)
+    if (collect_curves) {
+      model_targets <- intersect(ppc_models, names(fits))
+      if (length(model_targets)) {
+        ppc_curves <- list()
+        for (model_name in model_targets) {
+          draws_matrix <- fits[[model_name]]$post_ypred
+          if (is.null(draws_matrix)) next
+          curve_obj <- build_ppc_ecdf_curves(
+            draws = draws_matrix,
+            y_obs_full = y,
+            y_train = y[train_idx],
+            max_draws = ppc_max_draws
+          )
+          if (!is.null(curve_obj)) {
+            ppc_curves[[model_name]] <- curve_obj
+          }
+        }
+        if (!length(ppc_curves)) ppc_curves <- NULL
+      }
+    }
+  }
+
   list(
     metrics = metrics,
     posterior_samples = if (length(sample_records)) dplyr::bind_rows(sample_records) else NULL,
-    observed = observed_df
+    observed = observed_df,
+    ppc_curves = ppc_curves
   )
 }
 
@@ -1306,11 +1582,15 @@ run_real_data_study <- function(dataset_targets,
                                 repeats = 10,
                                 seed = 202402,
                                 alpha = 0.1,
-                                verbose = TRUE) {
+                                verbose = TRUE,
+                                ppc_models = c("sebart", "bart"),
+                                ppc_max_draws = 200,
+                                custom_split = list(train_folds = NULL, test_folds = NULL)) {
   ensure_packages(c("dplyr"))
   all_metrics <- list()
   sample_list <- list()
   observed_list <- list()
+  ppc_curve_list <- list()
   model_config <- list(ntree = 200, nsave = 1000, nburn = 1000, verbose = FALSE)
 
   for (dt in dataset_targets) {
@@ -1319,7 +1599,27 @@ run_real_data_study <- function(dataset_targets,
     if (verbose) message(sprintf("Running dataset %s (%s)", dataset_name, target_feature))
 
     dataset <- load_real_dataset(dataset_name, target_feature)
-    splits <- create_repeated_cv_splits(dataset$meta$n_obs, folds = folds, repeats = repeats, seed = seed)
+    use_custom_split <- dataset_name == "parkinsons" && !is.null(custom_split$train_folds) && !is.null(custom_split$test_folds)
+    if (use_custom_split) {
+      n_obs <- dataset$meta$n_obs
+      set.seed(seed)
+      indices <- sample.int(n_obs)
+      fold_ids <- ceiling(seq_along(indices) / ceiling(n_obs / folds))
+      fold_ids <- (fold_ids - 1) %% folds + 1
+      train_idx <- sort(indices[fold_ids %in% custom_split$train_folds])
+      test_idx <- sort(indices[fold_ids %in% custom_split$test_folds])
+      if (!length(train_idx) || !length(test_idx)) {
+        stop("Custom fold specification yielded empty train/test split", call. = FALSE)
+      }
+      splits <- list(list(
+        train = train_idx,
+        test = test_idx,
+        repeat_id = 1L,
+        fold = 1L
+      ))
+    } else {
+      splits <- create_repeated_cv_splits(dataset$meta$n_obs, folds = folds, repeats = repeats, seed = seed)
+    }
 
     total_splits <- length(splits)
     dt_results <- lapply(seq_along(splits), function(split_idx) {
@@ -1333,7 +1633,9 @@ run_real_data_study <- function(dataset_targets,
         ppc_sample_size = 500,
         iteration_id = split_idx,
         total_iterations = total_splits,
-        verbose_progress = verbose
+        verbose_progress = verbose,
+        ppc_models = intersect(models, ppc_models),
+        ppc_max_draws = ppc_max_draws
       )
     })
 
@@ -1355,13 +1657,29 @@ run_real_data_study <- function(dataset_targets,
     observed_df$Dataset <- dataset_name
     observed_df$Target <- target_feature
     observed_list[[paste(dataset_name, target_feature, sep = "_")]] <- observed_df
+
+    curve_entries <- lapply(dt_results, function(res) res$ppc_curves)
+    curve_entries <- curve_entries[!vapply(curve_entries, is.null, logical(1))]
+    if (length(curve_entries)) {
+      if (is.null(ppc_curve_list[[dataset_name]])) {
+        ppc_curve_list[[dataset_name]] <- list()
+      }
+      ppc_curve_list[[dataset_name]][[target_feature]] <- curve_entries[[1]]
+    }
   }
 
   metrics_df <- dplyr::bind_rows(all_metrics)
   summary_df <- summarize_real_data_metrics(metrics_df)
   sample_df <- if (exists("sample_list") && length(sample_list)) dplyr::bind_rows(sample_list) else NULL
   observed_df <- if (length(observed_list)) dplyr::bind_rows(observed_list) else NULL
-  list(metrics = metrics_df, summary = summary_df, posterior_samples = sample_df, observed = observed_df)
+  ppc_curves <- if (length(ppc_curve_list)) ppc_curve_list else NULL
+  list(
+    metrics = metrics_df,
+    summary = summary_df,
+    posterior_samples = sample_df,
+    observed = observed_df,
+    ppc_ecdf_curves = ppc_curves
+  )
 }
 
 plot_real_data_widths <- function(metrics_df, title = NULL) {
@@ -1398,6 +1716,74 @@ plot_real_data_widths <- function(metrics_df, title = NULL) {
       strip.text = ggplot2::element_text(face = "bold")
     ) +
     ggplot2::scale_x_continuous(expand = ggplot2::expansion(mult = c(0.05, 0.20)))
+}
+
+compute_relative_benchmark_metrics <- function(summary_df, baseline = "bart",
+                                               nominal = 0.9,
+                                               rmse_col = "Mean_RMSE",
+                                               width_col = "Mean_Width_Q_90",
+                                               coverage_col = "Mean_Coverage_Q_90") {
+  if (is.null(summary_df) || !nrow(summary_df)) return(NULL)
+  required_cols <- c("Dataset", "Target", "Model", rmse_col, width_col, coverage_col)
+  if (!all(required_cols %in% names(summary_df))) {
+    stop("Summary data frame is missing required columns.", call. = FALSE)
+  }
+
+  baseline_df <- summary_df[summary_df$Model == baseline,
+                            c("Dataset", "Target", rmse_col, width_col, coverage_col),
+                            drop = FALSE]
+  if (!nrow(baseline_df)) {
+    warning(sprintf("Baseline model %s not found in summary data; skipping relative metrics.", baseline),
+            call. = FALSE)
+    return(NULL)
+  }
+  names(baseline_df) <- c("Dataset", "Target", "Baseline_RMSE", "Baseline_Width", "Baseline_Coverage")
+
+  merged <- merge(summary_df, baseline_df, by = c("Dataset", "Target"), all.x = TRUE)
+  merged <- merged[!is.na(merged$Baseline_RMSE), , drop = FALSE]
+  if (!nrow(merged)) return(NULL)
+
+  merged$Delta_RMSE <- merged[[rmse_col]] - merged$Baseline_RMSE
+  merged$Delta_Width <- merged[[width_col]] - merged$Baseline_Width
+  merged$Delta_Coverage <- abs(merged[[coverage_col]] - nominal) - abs(merged$Baseline_Coverage - nominal)
+  merged$Task <- paste(merged$Dataset, merged$Target, sep = " :: ")
+  merged
+}
+
+plot_relative_benchmark <- function(relative_df, baseline = "bart") {
+  if (is.null(relative_df) || !nrow(relative_df)) return(NULL)
+  plot_df <- relative_df[relative_df$Model != baseline, , drop = FALSE]
+  if (!nrow(plot_df)) return(NULL)
+
+  ensure_packages(c("ggplot2", "dplyr", "tidyr"))
+
+  metric_map <- c(Delta_RMSE = "ΔRMSE",
+                  Delta_Coverage = "ΔCoverage Error",
+                  Delta_Width = "ΔWidth")
+  long_df <- tidyr::pivot_longer(
+    plot_df,
+    cols = names(metric_map),
+    names_to = "Metric",
+    values_to = "Value"
+  )
+  long_df$Metric <- factor(long_df$Metric, levels = names(metric_map), labels = metric_map)
+  long_df$Model <- factor(long_df$Model, levels = rev(c("sblm", "bart_bc", "bart", "drbart", "sebart")))
+  long_df <- long_df[!is.na(long_df$Model), , drop = FALSE]
+  if (!nrow(long_df)) return(NULL)
+
+  lapply(split(long_df, long_df$Metric), function(metric_df) {
+    ggplot2::ggplot(metric_df, ggplot2::aes(x = Model, y = Value, fill = Model)) +
+      ggplot2::geom_boxplot(alpha = 0.35, outlier.shape = NA) +
+      ggplot2::geom_jitter(ggplot2::aes(colour = Model), width = 0.15, size = 1.6, alpha = 0.75) +
+      ggplot2::geom_hline(yintercept = 0, linetype = "dashed", colour = "grey40") +
+      ggplot2::labs(x = NULL, y = NULL, title = unique(metric_df$Metric), fill = "Model") +
+      ggplot2::guides(colour = "none") +
+      ggplot2::theme_bw(base_size = 14) +
+      ggplot2::theme(
+        legend.position = "bottom",
+        plot.title = ggplot2::element_text(face = "bold")
+      )
+  })
 }
 
 `%||%` <- function(a, b) {
@@ -1475,4 +1861,78 @@ plot_density_ppc <- function(sample_df, observed_df, dataset, target,
     ) +
     ggplot2::theme_bw(base_size = 11) +
     ggplot2::theme(legend.position = "bottom")
+}
+
+build_ppc_ecdf_curves <- function(draws, y_obs_full, y_train = NULL, max_draws = 200) {
+  if (is.null(draws)) return(NULL)
+  draws <- as.matrix(draws)
+  if (!nrow(draws) || !ncol(draws)) return(NULL)
+
+  draw_ids <- seq_len(nrow(draws))
+  if (is.finite(max_draws) && max_draws > 0L) {
+    draw_ids <- draw_ids[seq_len(min(length(draw_ids), max_draws))]
+  }
+
+  build_step_df <- function(values) {
+    values <- sort(as.numeric(values))
+    values <- values[is.finite(values)]
+    if (!length(values)) return(NULL)
+    unique_vals <- unique(values)
+    ecdf_fun <- stats::ecdf(values)
+    x_vals <- c(min(unique_vals), unique_vals)
+    y_vals <- c(0, ecdf_fun(unique_vals))
+    data.frame(x = x_vals, y = y_vals, stringsAsFactors = FALSE)
+  }
+
+  draw_list <- lapply(draw_ids, function(idx) {
+    df <- build_step_df(draws[idx, ])
+    if (is.null(df)) return(NULL)
+    df$Draw <- idx
+    df
+  })
+  draw_list <- draw_list[!vapply(draw_list, is.null, logical(1))]
+  if (!length(draw_list)) return(NULL)
+  draw_df <- do.call(rbind, draw_list)
+
+  obs_df <- build_step_df(y_obs_full)
+  train_df <- if (!is.null(y_train)) build_step_df(y_train) else NULL
+  if (is.null(obs_df)) return(NULL)
+
+  list(draws = draw_df, observed = obs_df, train = train_df)
+}
+
+plot_ppc_ecdf_draws <- function(curve_obj, dataset, target, model_label,
+                                title_suffix = NULL) {
+  if (is.null(curve_obj) || is.null(curve_obj$draws) || is.null(curve_obj$observed)) return(NULL)
+  draw_df <- curve_obj$draws
+  obs_df <- curve_obj$observed
+  plot_title <- sprintf("%s - %s (%s)", tools::toTitleCase(dataset), target, toupper(model_label))
+  if (!is.null(title_suffix) && nzchar(title_suffix)) {
+    plot_title <- paste0(plot_title, " ", title_suffix)
+  }
+
+  ggplot2::ggplot() +
+    ggplot2::geom_step(
+      data = draw_df,
+      ggplot2::aes(x = x, y = y, group = Draw),
+      colour = "#9ca3af",
+      alpha = 0.35,
+      linewidth = 0.7
+    ) +
+    ggplot2::geom_step(
+      data = obs_df,
+      ggplot2::aes(x = x, y = y),
+      colour = "black",
+      linewidth = 1.2
+    ) +
+    ggplot2::labs(
+      title = plot_title,
+      x = "Value",
+      y = "ECDF"
+    ) +
+    ggplot2::theme_bw(base_size = 14) +
+    ggplot2::theme(
+      legend.position = "none",
+      plot.title = ggplot2::element_text(face = "bold")
+    )
 }

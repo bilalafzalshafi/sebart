@@ -1,0 +1,3 @@
+"Scenario","Iteration","N_train","ISE_raw_mean","ISE_raw_expected","Mu_mean","Sigma_mean"
+"sigmoid",1,50,Inf,Inf,-0.0396787514658456,0.308185731817765
+"sigmoid",2,50,Inf,Inf,0.605029871124923,0.31273091098654

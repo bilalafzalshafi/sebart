@@ -1,0 +1,2 @@
+"Scenario","Model","N_train","Mean_RMSE","Coverage_Q_80","Width_Q_80","Coverage_Q_90","Width_Q_90","Coverage_Q_95","Width_Q_95","Coverage_HPD_80","Width_HPD_80","Coverage_HPD_90","Width_HPD_90","Coverage_HPD_95","Width_HPD_95","Mean_CRPS","Median_CRPS","Mean_Runtime"
+"arctangent","drbart",200,76.0535715113452,0.63560021160252,172.52633025353,0.705854756956226,190.428404958212,0.743466989737826,197.611143141949,NA,NA,NA,NA,NA,NA,NA,NA,1547.66692

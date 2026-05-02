@@ -1,0 +1,105 @@
+% Extended abstract for SDSS 2026 using sample template
+\documentclass[10pt]{article}
+\usepackage{sdss2020}
+\usepackage{url}
+\usepackage{latexsym}
+\usepackage{amsmath, amsthm, amsfonts}
+\usepackage{algorithm, algorithmic}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{float}
+
+\title{Semiparametric Bayesian Additive Regression Trees}
+
+\author{  Anonymous 1 \\
+  Affiliation / Address line 1 \\
+  Affiliation / Address line 2 \\
+  {\tt email@domain} \\\And
+ Anonymous 2 \\
+  Affiliation / Address line 1 \\
+  Affiliation / Address line 2 \\
+  {\tt email@domain}}
+
+\date{}
+\begin{document}
+\maketitle
+\begin{abstract}
+Bayesian additive regression trees (BART) have demonstrated widespread success for probabilistic prediction and inference. However, many regression applications exhibit bounded, skewed, or multi-modal responses that violate the Gaussian assumptions required by BART. We introduce SeBART, a semiparametric extension of BART that jointly learns a nonparametric transformation of the data and the nonlinear regression surface. Our efficiently-blocked Gibbs sampling algorithm alternates between a posterior rank matching algorithm for the transformation and standard BART updates on latent (transformed) responses. Across simulations and real data, SeBART improves RMSE and restores calibrated predictive intervals for non-Gaussian outcomes while retaining BART's flexibility and runtime practicality.
+\end{abstract}
+
+{\bf Keywords:} Bayesian nonparametrics; Gibbs sampler; quantile regression; transformation models
+
+\section{Introduction}
+BART~\cite{Chipman_2010} has become essential for nonlinear regression and interaction discovery, with prominent use in causal inference~\cite{Hill01012011} and wide-ranging extensions ~\cite{annurev:/content/journals/10.1146/annurev-statistics-031219-041110}. As a Bayesian model, BART still commits to distributional assumptions for the response; the default Gaussian errors struggle when outcomes are bounded, skewed, or multi-modal. Other distributional regression approaches  \cite{annurev:/content/journals/10.1146/annurev-statistics-040722-053607} target entire outcome distributions but often rely on linear predictors, parametric outcome families, or low-dimensional settings. Classical fixes like Box--Cox transformations \cite{10.1111/j.2517-6161.1964.tb00553.x} offer some adaptability, but their parametric specifications are restrictive. Semiparametric regression methods have mostly paired flexible transformations with simpler parametric regressions~\cite{Kowal_2024}. We propose SeBART, which learns a nonparametric monotone transformation jointly with the BART sum-of-trees regression, delivering distributional flexibility and calibrated uncertainty without sacrificing BART's predictive strengths.
+
+\section{Methods}
+\subsection{Semiparametric BART}
+For paired data $\{x_i,y_i\}^{n}_{i=1}$ with $x_i \in \mathbb R^p$ and $y_i \in \mathcal Y \subseteq \mathbb{R}$, SeBART introduces latent Gaussian responses through a nonparametric monotone transformation,
+\begin{equation}\label{eq:latent-transform}
+z_i = g(y_i)
+\end{equation}
+and places a BART sum-of-trees model on the latent regression surface,
+\begin{equation}\label{eq:latent-model}
+z_i = f_\theta(x_i) + \varepsilon_i, \qquad \varepsilon_i \stackrel{iid}{\sim} \mathcal N(0,\sigma_\theta^2).
+\end{equation}
+Here $\theta$ collects the BART parameters and residual standard deviation $\sigma_\theta$ supplied by the standard BART sampler.
+
+\subsection{Transformation model and priors}
+The prior on $f$ is the standard BART sum of regression trees with regularizing depth and leaf-scale priors~\cite{Chipman_2010}. Intuitively, $g$ must warp the observed responses so that the latent regression in~\eqref{eq:latent-model} receives approximately Gaussian residuals. We formalize this by matching the observed and latent distributions via the quantile identity
+\begin{equation}\label{eq:quantile-match}
+g(t) = F_Z^{-1}\{F_Y(t)\},
+\end{equation}
+where $F_Y$ and $F_Z$ denote the marginal CDFs of the observed and latent responses, respectively. We place a Bayesian-bootstrap prior on $F_Y$, which is a limiting case of a Dirichlet process prior that is free of hyperparameters and can be sampled directly using Monte Carlo (not MCMC). On the latent side, $F_Z$ marginalizes the Gaussian conditional distributions implied by~\eqref{eq:latent-model} over both the observed $x_i$'s and the BART posterior for $f_\theta$,
+\begin{equation}\label{eq:Fz-definition}
+F_Z(z) = \frac{1}{n}\sum_{i=1}^n \mathbb E_{\theta\mid D_n} \Phi\!\left(\frac{z - f_\theta(x_i)}{\sigma_\theta}\right),
+\end{equation}
+This quantity is intractable to compute exactly but supplies the target that we approximate.
+
+\subsection{Blocked Gibbs sampler}
+Let $\tilde y$ denote predictive responses at future covariates $x^\star$. The joint posterior factorizes into the conditional blocks
+\begin{equation}
+ p(g,\theta,\tilde y\mid D_n) = p(g\mid D_n)\, p(\theta\mid D_n, g)\, p(\tilde y\mid \theta, g).
+\end{equation}
+We cycle through these terms. (i) \textbf{Transformation update}. Draw $F_Y$ from the Bayesian bootstrap, combine it with an estimate of $F_Z$ (Section~\ref{subsec:Fz-approx}), and obtain $g$ via quantile matching, producing a draw from $p(g\mid D_n)$. (ii) \textbf{BART update}. Given $z=g(y)$, run the standard BART backfitting step to sample trees, leaf parameters, and $\sigma_\theta$ from $p(\theta \mid D_n, g)$. (iii) \textbf{Predictive update}. For each $x^\star$, draw latent $z^\star \sim \mathcal N\{f_\theta(x^\star), \sigma_\theta^2\}$ using the current $(g,\theta)$, then set $\tilde y = g^{-1}(z^\star)$ to obtain samples, intervals, or summaries for $Y^\star$. The algorithm is efficiently blocked because $g$ is sampled unconditional on the BART parameters, which preserves good mixing even under highly nonlinear transformations.
+
+\subsection{Approximating $F_Z$}\label{subsec:Fz-approx}
+Evaluating~\eqref{eq:Fz-definition} exactly would require integrating over the entire BART posterior. We approximate $F_Z$ with a short pilot BART fit: initialize latent responses with an empirical transform, run a brief BART sampler to obtain draws $\{(f_{\theta^{(r)}},\sigma_{\theta^{(r)}})\}_{r=1}^R$, and average them, $ \widehat F_Z(z) = {1}/{nR}\sum_{r=1}^R\sum_{i=1}^n \Phi\!\left({z - f_{\theta^{(r)}}(x_i)}/{\sigma_{\theta^{(r)}}}\right)$. Storing $\widehat F_Z$ on a grid makes inversion inexpensive; pairing these evaluations with Bayesian-bootstrap draws of $F_Y$ yields $g$-samples. Other estimators of $F_Z$ could be substituted. The algorithm also applies location-scale adjustment from \newcite{Kowal_2024}, which provides robustness to the $F_Z$ approximation.
+
+\section{Results}
+\subsection{Simulations}
+We benchmark SeBART against BART, Box--Cox BART (BART-BC), and the semiparametric Bayesian linear model (SBLM) of \newcite{Kowal_2024} across four transformation scenarios with $n=200$ (100 replications). BART-BC fits the same latent regression model~\eqref{eq:latent-transform}--\eqref{eq:latent-model} but restricts $g$ to the parametric Box--Cox family, yielding a joint estimator with limited transformation flexibility.
+
+\begin{table}[h]
+\centering
+\caption{90\% equal-tail out-of-sample predictive intervals and widths across simulation scenarios. Each cell contains width (empirical coverage \%). Bolded: smallest width that achieves nominal coverage.}
+\label{tab:sim-intervals}
+\begin{tabular}{lccc}
+\toprule
+Model & Sigmoid & Beta & Arctangent \\
+\midrule
+SBLM & 15.37 (0.93) & 0.53 (0.89) & 204.49 (0.90) \\
+BART-BC & 57.71 (0.89) & 0.55 (0.90) & 1468.07 (0.87) \\
+BART & 6.56 (0.45) & 0.18 (0.85) & 86.45 (0.53) \\
+SeBART & \textbf{11.96} (0.92) & \textbf{0.27} (0.90) & \textbf{50.26} (0.91) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Table~\ref{tab:sim-intervals} shows SeBART restores nominal coverage in all three cases with only moderate width increases relative to BART (which consistently undercovers), whereas BART-BC and SBLM attains coverage at the cost of much wider intervals. RMSE results (not shown) reveal that SeBART is best in the sigmoid and arctangent cases and matches BART in the beta case.
+
+\subsection{Real data}
+We analyze three non-Gaussian datasets: Parkinson's DFA (heavy-tailed medical scores), forest fires area (positive, skewed, zero-inflated), and bike sharing wind speed (bounded in $[0,1]$, zero-inflated). We perform ten-fold cross-validation, fitting each method on 90\% of the data and predicting the held-out responses to evaluate equal-tail interval widths, empirical coverage, and CRPS. Figure~\ref{fig:real-interval} focuses on the bounded bike sharing wind speed target: BART attains narrow intervals but only about 30\% coverage at the 90\% nominal level. SeBART widens reasonably to reach near-nominal coverage, whereas SBLM and BART-BC overshoot with far wider bands. Parkinson's DFA and forest fires area show the same pattern, and CRPS summaries (not shown) confirm that SeBART balances sharpness and calibration best. Posterior ECDF overlays (not shown) confirm that SeBART corrects tail behavior without distorting main effects.
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.9\columnwidth]{real_interval_equal_tail_bikesharing_interval_widths.png}
+\caption{Posterior predictive interval widths and empirical coverage for the bounded bike sharing target (80/90/95\% equal-tail). Annotations mark coverage.}
+\label{fig:real-interval}
+\end{figure}
+
+\section{Conclusion}
+SeBART combines Bayesian transformation learning with BART's sum-of-trees regression to deliver calibrated uncertainty and robust accuracy under non-Gaussian outcomes. Computation remains practical because the blocked Gibbs sampler reuses a Monte Carlo approximation of $F_Z$, avoiding sticky latent states while retaining BART's flexibility.
+
+\bibliographystyle{sdss2020}
+\bibliography{SeBART_ExtendedAbstract}
+
+\end{document}
