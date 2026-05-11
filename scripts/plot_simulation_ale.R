@@ -174,6 +174,7 @@ main <- function() {
     )
     X <- as.matrix(data$X_train)
     y <- as.numeric(data$y_train)
+    transform_info <- get_transformation(scenario)
     feature_idx <- seq_len(ncol(X))
 
     design <- build_ale_design(X, feature_idx, bins)
@@ -186,7 +187,7 @@ main <- function() {
       nburn = 1000,
       verbose = FALSE
     )
-    sebart_pred <- colMeans(fit$post_ypred)
+    sebart_pred <- transform_info$g(colMeans(fit$post_ypred))
 
     bart_fit <- dbarts::bart(
       x.train = X,
@@ -197,7 +198,7 @@ main <- function() {
       nskip = 1000,
       verbose = FALSE
     )
-    bart_pred <- colMeans(bart_fit$yhat.test)
+    bart_pred <- transform_info$g(colMeans(bart_fit$yhat.test))
     truth_pred <- friedman_function(design$X_test)
 
     block_preds <- lapply(names(design$block_rows), function(name) {
@@ -262,7 +263,7 @@ main <- function() {
     facet_grid(Scenario ~ Feature, scales = "free") +
     labs(title = sprintf("Accumulated local effects (%s)", scenario_label),
          x = "Feature value",
-         y = if (standardize) "Standardized ALE (z-score)" else "ALE on observed scale",
+         y = if (standardize) "Standardized ALE (z-score)" else "ALE on latent scale",
          colour = "Model") +
     theme_bw(base_size = 11) +
     theme(legend.position = "bottom",
