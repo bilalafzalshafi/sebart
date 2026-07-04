@@ -131,15 +131,13 @@ sebart = function(y, X, X_test = X,
     # Construct data frame with matrix columns
     X_df <- as.data.frame(X)
     colnames(X_df) <- paste0("X", 1:ncol(X))
-    x0_df <- as.data.frame(matrix(0, nrow = 1, ncol = ncol(X_df)))
-    colnames(x0_df) <- colnames(X_df)
     pilot_data <- cbind(data.frame(z = z), X_df)
     
     # Set up pilot BART sampler
     pilot_sampler = dbarts::dbarts(
       formula = z ~ .,
       data = pilot_data,
-      test = x0_df,
+      sigma = 1,
       control = dbarts::dbartsControl(
         verbose = FALSE,
         keepTrainingFits = TRUE,
@@ -156,7 +154,6 @@ sebart = function(y, X, X_test = X,
     # Extract posterior summaries from pilot run
     pilot_fits = pilot_samples$train # n x pilot_ndraws matrix
     pilot_sigma = mean(pilot_samples$sigma)
-    f0_draws <- as.numeric(pilot_samples$test)  # draws of f_theta(0)
     
     if(verbose) cat('Pilot run complete. Initializing main sampler...\n')
 
@@ -173,12 +170,11 @@ sebart = function(y, X, X_test = X,
     # Store F_{Z | X = x_i}(t) for all x_i & all t in z_grid
     # This integrates out the BART function from its posterior:
     zrep = rep(z_grid, times = pilot_ndraws)
-    zrep_std = (zrep - rep(f0_draws, each = ngrid)) / pilot_sigma
     Fzx_eval = sapply(1:n, function(i){
-      rowMeans(matrix(pnorm(zrep_std,
-                            mean = rep((pilot_fits[i,] - f0_draws)/pilot_sigma,
-                                       each = ngrid),
-                            sd = 1), nrow = ngrid))
+      rowMeans(matrix(pnorm(zrep,
+                            mean = rep(pilot_fits[i,], each = ngrid),
+                            sd = pilot_sigma),
+                      nrow = ngrid))
     })
 
     # CDF of z using pilot estimates (initial approximation):
@@ -192,12 +188,11 @@ sebart = function(y, X, X_test = X,
     
     # Recompute Fzx_eval with updated grid
     zrep = rep(z_grid, times = pilot_ndraws)
-    zrep_std = (zrep - rep(f0_draws, each = ngrid)) / pilot_sigma
     Fzx_eval = sapply(1:n, function(i){
-      rowMeans(matrix(pnorm(zrep_std,
-                            mean = rep((pilot_fits[i,] - f0_draws)/pilot_sigma,
-                                       each = ngrid),
-                            sd = 1), nrow = ngrid))
+      rowMeans(matrix(pnorm(zrep,
+                            mean = rep(pilot_fits[i,], each = ngrid),
+                            sd = pilot_sigma),
+                      nrow = ngrid))
     })
 
     # Recompute Fz_eval with updated grid
@@ -294,6 +289,7 @@ sebart = function(y, X, X_test = X,
   main_sampler = dbarts::dbarts(
     formula = z ~ .,
     data = main_data,
+    sigma = 1,
     control = dbarts::dbartsControl(
       verbose = FALSE,
       keepTrainingFits = TRUE,
