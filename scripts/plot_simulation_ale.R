@@ -13,6 +13,38 @@ friedman_function <- function(X) {
     5 * X[, 5]
 }
 
+oracle_observed_mean <- function(X, transform_info, n_mc = 10000, seed = 123,
+                                 chunk_size = 500) {
+  had_seed <- exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
+  if (had_seed) old_seed <- get(".Random.seed", envir = .GlobalEnv)
+  on.exit({
+    if (had_seed) {
+      assign(".Random.seed", old_seed, envir = .GlobalEnv)
+    } else if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)) {
+      rm(".Random.seed", envir = .GlobalEnv)
+    }
+  }, add = TRUE)
+
+  set.seed(seed)
+  eps <- rnorm(n_mc)
+  eps <- eps - mean(eps)
+
+  f <- friedman_function(X)
+  out <- numeric(length(f))
+
+  for (start in seq(1, length(f), by = chunk_size)) {
+    idx <- start:min(start + chunk_size - 1, length(f))
+    z_mat <- outer(f[idx], eps, "+")
+    y_mat <- transform_info$g_inv(z_mat)
+    if (is.null(dim(y_mat))) {
+      y_mat <- matrix(y_mat, nrow = length(idx), ncol = length(eps))
+    }
+    out[idx] <- rowMeans(y_mat)
+  }
+
+  out
+}
+
 resolve_root <- function() {
   args <- commandArgs(trailingOnly = FALSE)
   file_arg <- sub("^--file=", "", args[grep("^--file=", args)])
@@ -187,7 +219,7 @@ main <- function() {
       nburn = 1000,
       verbose = FALSE
     )
-    sebart_pred <- transform_info$g(colMeans(fit$post_ypred))
+    sebart_pred <- colMeans(fit$post_ypred)
 
     bart_fit <- dbarts::bart(
       x.train = X,
@@ -198,15 +230,19 @@ main <- function() {
       nskip = 1000,
       verbose = FALSE
     )
-    bart_pred <- transform_info$g(colMeans(bart_fit$yhat.test))
-    truth_pred <- friedman_function(design$X_test)
+    bart_pred <- colMeans(bart_fit$yhat.test)
+    oracle_pred <- oracle_observed_mean(
+      design$X_test,
+      transform_info,
+      seed = seed + idx - 1
+    )
 
     block_preds <- lapply(names(design$block_rows), function(name) {
       idxs <- design$block_rows[[name]]
       list(
         sebart = sebart_pred[idxs],
         bart = bart_pred[idxs],
-        truth = truth_pred[idxs]
+        oracle = oracle_pred[idxs]
       )
     })
     names(block_preds) <- names(design$block_rows)
@@ -216,13 +252,10 @@ main <- function() {
       if (is.null(info)) next
       bins_j <- info$bins
       block_names <- info$blocks
-      for (model_name in c("sebart", "bart", "truth")) {
+      for (model_name in c("sebart", "bart", "oracle")) {
         boundary_preds <- do.call(rbind, lapply(block_names, function(bn) block_preds[[bn]][[model_name]]))
         ale_df <- compute_ale(X[, j], bins_j, boundary_preds)
         if (is.null(ale_df)) next
-        if (model_name == "truth" && j == 3) {
-          ale_df$ale <- pmax(pmin(ale_df$ale, 25), -25)
-        }
         ale_df$Scenario <- tools::toTitleCase(scenario)
         ale_df$Feature <- paste0("X", j)
         ale_df$Model <- model_name
@@ -263,7 +296,7 @@ main <- function() {
     facet_grid(Scenario ~ Feature, scales = "free") +
     labs(title = sprintf("Accumulated local effects (%s)", scenario_label),
          x = "Feature value",
-         y = if (standardize) "Standardized ALE (z-score)" else "ALE on latent scale",
+         y = if (standardize) "Standardized ALE (z-score)" else "ALE on observed scale",
          colour = "Model") +
     theme_bw(base_size = 11) +
     theme(legend.position = "bottom",
